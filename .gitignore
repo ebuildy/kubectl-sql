@@ -1,0 +1,3 @@
+bin/kubectl-sql
+coverage.out
+coverage.html
