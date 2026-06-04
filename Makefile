@@ -1,7 +1,13 @@
 BINARY := ./bin/kubectl-sql
 MODULE := github.com/ebuildy/kubectl-sql
 
-.PHONY: build install lint test test-integration coverage e2e
+GOLANGCI_LINT_VERSION := v2.10.1
+
+.PHONY: build install lint test test-integration coverage e2e dev-deps
+
+dev-deps:
+	go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	go mod download
 
 build:
 	go build -o $(BINARY) .
