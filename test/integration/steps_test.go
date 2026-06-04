@@ -81,6 +81,33 @@ func (tc *testContext) iRunKubectlSqlInNamespace(query string) error {
 	return tc.iRunKubectlSql(query)
 }
 
+func (tc *testContext) iRunKubectlSqlWithNamespaceFlag(ns, query string) error {
+	binary := "../../bin/kubectl-sql"
+	cmd := exec.Command(binary, "--kubeconfig", envKubeconfig, "--namespace", ns, query)
+	var outBuf, errBuf strings.Builder
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+	err := cmd.Run()
+	tc.stdout = outBuf.String()
+	tc.stderr = errBuf.String()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			tc.exitCode = exitErr.ExitCode()
+			return nil
+		}
+		return err
+	}
+	tc.exitCode = 0
+	return nil
+}
+
+func (tc *testContext) theOutputContains(s string) error {
+	if !strings.Contains(tc.stdout, s) {
+		return fmt.Errorf("expected output to contain %q\noutput:\n%s", s, tc.stdout)
+	}
+	return nil
+}
+
 // countDataRows counts data rows in table output, excluding the header row and separator lines.
 // The table format is:
 //
@@ -126,9 +153,11 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^I run kubectl-sql "([^"]*)" against the envtest cluster$`, tc.iRunKubectlSql)
 	sc.Step(`^I run kubectl-sql with namespace query "([^"]*)" against the envtest cluster$`, tc.iRunKubectlSqlInNamespace)
+	sc.Step(`^I run kubectl-sql --namespace "([^"]*)" with query "([^"]*)" against the envtest cluster$`, tc.iRunKubectlSqlWithNamespaceFlag)
 	sc.Step(`^the output has at least (\d+) rows$`, tc.theOutputHasAtLeastRows)
 	sc.Step(`^the output has at most (\d+) rows$`, tc.theOutputHasAtMostRows)
 	sc.Step(`^the output has between (\d+) and (\d+) rows$`, tc.theOutputHasBetweenAndRows)
 	sc.Step(`^the exit code is (\d+)$`, tc.theExitCodeIs)
+	sc.Step(`^the output contains "([^"]*)"$`, tc.theOutputContains)
 	sc.Step(`^I pick a random fixture namespace$`, tc.iPickARandomFixtureNamespace)
 }

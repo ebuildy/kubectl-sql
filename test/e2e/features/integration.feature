@@ -25,3 +25,8 @@ Feature: SQL queries against envtest cluster
     When I run kubectl-sql "SELECT name, namespace FROM configmaps" against the envtest cluster
     Then the exit code is 0
     And the output has at least 10 rows
+
+  Scenario: --namespace flag scopes COUNT(*) to a single namespace
+    When I run kubectl-sql --namespace "main" with query "SELECT COUNT(*) FROM pods" against the envtest cluster
+    Then the exit code is 0
+    And the output contains "2"

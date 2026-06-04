@@ -20,51 +20,58 @@ var (
 	configmapsGVR  = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "configmaps"}
 )
 
-// SeedFixtures creates 10 namespaces with random names, each containing
-// 3-5 Pods (phase=Running), 1-2 Deployments, and 1-2 ConfigMaps.
-// Returns the list of created namespace names.
+// SeedFixtures creates a "main" namespace with exactly 2 pods, then 10 random
+// namespaces each containing 3-5 Pods (phase=Running), 1-2 Deployments, and
+// 1-2 ConfigMaps. Returns the list of random namespace names (excludes "main").
 func SeedFixtures(ctx context.Context, dynClient dynamic.Interface) ([]string, error) {
+	if err := seedNamespace(ctx, dynClient, "main", 2, 0, 0); err != nil {
+		return nil, err
+	}
+
 	const namespaceCount = 10
 	namespaces := make([]string, 0, namespaceCount)
 
 	for i := 0; i < namespaceCount; i++ {
 		nsName := randomName()
-
-		ns := &unstructured.Unstructured{
-			Object: map[string]interface{}{
-				"apiVersion": "v1",
-				"kind":       "Namespace",
-				"metadata":   map[string]interface{}{"name": nsName},
-			},
-		}
-		if _, err := dynClient.Resource(namespacesGVR).Create(ctx, ns, metav1.CreateOptions{}); err != nil {
-			return nil, fmt.Errorf("create namespace %s: %w", nsName, err)
+		podCount := 3 + rng.Intn(3)   // 3-5
+		deployCount := 1 + rng.Intn(2) // 1-2
+		cmCount := 1 + rng.Intn(2)     // 1-2
+		if err := seedNamespace(ctx, dynClient, nsName, podCount, deployCount, cmCount); err != nil {
+			return nil, err
 		}
 		namespaces = append(namespaces, nsName)
-
-		podCount := 3 + rng.Intn(3) // 3-5
-		for p := 0; p < podCount; p++ {
-			if err := createPod(ctx, dynClient, nsName); err != nil {
-				return nil, err
-			}
-		}
-
-		deployCount := 1 + rng.Intn(2) // 1-2
-		for d := 0; d < deployCount; d++ {
-			if err := createDeployment(ctx, dynClient, nsName); err != nil {
-				return nil, err
-			}
-		}
-
-		cmCount := 1 + rng.Intn(2) // 1-2
-		for c := 0; c < cmCount; c++ {
-			if err := createConfigMap(ctx, dynClient, nsName); err != nil {
-				return nil, err
-			}
-		}
 	}
 
 	return namespaces, nil
+}
+
+func seedNamespace(ctx context.Context, dynClient dynamic.Interface, nsName string, pods, deployments, configmaps int) error {
+	ns := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "Namespace",
+			"metadata":   map[string]interface{}{"name": nsName},
+		},
+	}
+	if _, err := dynClient.Resource(namespacesGVR).Create(ctx, ns, metav1.CreateOptions{}); err != nil {
+		return fmt.Errorf("create namespace %s: %w", nsName, err)
+	}
+	for p := 0; p < pods; p++ {
+		if err := createPod(ctx, dynClient, nsName); err != nil {
+			return err
+		}
+	}
+	for d := 0; d < deployments; d++ {
+		if err := createDeployment(ctx, dynClient, nsName); err != nil {
+			return err
+		}
+	}
+	for c := 0; c < configmaps; c++ {
+		if err := createConfigMap(ctx, dynClient, nsName); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func createPod(ctx context.Context, dynClient dynamic.Interface, ns string) error {
