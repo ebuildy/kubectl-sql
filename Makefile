@@ -19,7 +19,7 @@ test-integration:
 	go test ./test/integration/... -race -count=1
 
 e2e: build
-	go test ./test/e2e/... -v
+	go test -tags e2e ./test/e2e/... -v
 
 coverage:
 	go test ./... -race -count=1 -coverprofile=coverage.out

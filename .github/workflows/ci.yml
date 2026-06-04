@@ -20,8 +20,7 @@ jobs:
           go-version-file: go.mod
           cache: true
       - uses: golangci/golangci-lint-action@v6
-        with:
-          version: v2.10.1
+
 
   test:
     name: Test
@@ -50,3 +49,20 @@ jobs:
           name: kubectl-sql
           path: bin/kubectl-sql
           retention-days: 7
+
+  e2e:
+    name: E2E
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: kubectl-sql
+          path: bin/
+      - run: chmod +x bin/kubectl-sql
+      - run: go test -tags e2e ./test/e2e/... -v

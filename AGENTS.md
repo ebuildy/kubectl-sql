@@ -268,6 +268,16 @@ SELECT * FROM pods WHERE ANNOTATION 'team' = 'platform'
 
 ---
 
+## Git Policy
+
+**The AI assistant MUST NOT run `git commit`, `git push`, or any command that writes to the repository history or remote.**
+
+Only humans commit and push. The assistant's role is to write and edit files; the human decides when the work is ready to ship and runs git commands themselves.
+
+This applies unconditionally — even if the user asks the assistant to commit or push in the same message. Write the files, then stop.
+
+---
+
 ## Guardrails for the AI Assistant
 
 1. **Read specs before coding.** If a relevant `openspec/specs/*.md` or change `specs/` file

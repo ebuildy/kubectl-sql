@@ -1,3 +1,5 @@
+//go:build e2e
+
 // Package e2e contains end-to-end tests using godog (Cucumber/Gherkin).
 package e2e
 
