@@ -130,7 +130,15 @@ func (e *kubernetesExecution) Run(execCtx octoexec.ExecutionContext, produce oct
 		for _, raw := range items {
 			row := make([]octosql.Value, len(e.fields))
 			for j, field := range e.fields {
-				row[j] = anyToOctoValue(ResolveField(raw, field.Name))
+				path := field.Name
+				// Map well-known short names to their metadata paths.
+				switch path {
+				case "name":
+					path = "metadata.name"
+				case "namespace":
+					path = "metadata.namespace"
+				}
+				row[j] = anyToOctoValue(ResolveField(raw, path))
 			}
 			if err := produce(
 				octoexec.ProduceFromExecutionContext(execCtx),

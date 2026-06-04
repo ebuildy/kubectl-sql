@@ -5,7 +5,7 @@
     "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {},
     "ghcr.io/devcontainers/features/go:1": {}
   },
-  "postCreateCommand": "go mod download && go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest",
+  "postCreateCommand": "go mod download && go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest && go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest",
   "customizations": {
     "vscode": {
       "extensions": [
