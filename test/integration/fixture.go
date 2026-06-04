@@ -5,6 +5,7 @@ package integration
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -22,27 +23,49 @@ var (
 
 // SeedFixtures creates a "main" namespace with exactly 2 pods, then 10 random
 // namespaces each containing 3-5 Pods (phase=Running), 1-2 Deployments, and
-// 1-2 ConfigMaps. Returns the list of random namespace names (excludes "main").
+// 1-2 ConfigMaps. Namespaces are seeded in parallel. Returns the list of
+// random namespace names (excludes "main").
 func SeedFixtures(ctx context.Context, dynClient dynamic.Interface) ([]string, error) {
-	if err := seedNamespace(ctx, dynClient, "main", 2, 0, 0); err != nil {
-		return nil, err
+	const namespaceCount = 10
+
+	type nsSpec struct {
+		name        string
+		pods        int
+		deployments int
+		configmaps  int
 	}
 
-	const namespaceCount = 10
-	namespaces := make([]string, 0, namespaceCount)
-
+	specs := make([]nsSpec, 0, namespaceCount+1)
+	specs = append(specs, nsSpec{"main", 2, 0, 0})
+	randomNames := make([]string, namespaceCount)
 	for i := 0; i < namespaceCount; i++ {
-		nsName := randomName()
-		podCount := 3 + rng.Intn(3)   // 3-5
-		deployCount := 1 + rng.Intn(2) // 1-2
-		cmCount := 1 + rng.Intn(2)     // 1-2
-		if err := seedNamespace(ctx, dynClient, nsName, podCount, deployCount, cmCount); err != nil {
+		randomNames[i] = randomName()
+		specs = append(specs, nsSpec{
+			name:        randomNames[i],
+			pods:        3 + rng.Intn(3),   // 3-5
+			deployments: 1 + rng.Intn(2),   // 1-2
+			configmaps:  1 + rng.Intn(2),   // 1-2
+		})
+	}
+
+	var wg sync.WaitGroup
+	errs := make([]error, len(specs))
+	for i, spec := range specs {
+		wg.Add(1)
+		go func(idx int, s nsSpec) {
+			defer wg.Done()
+			errs[idx] = seedNamespace(ctx, dynClient, s.name, s.pods, s.deployments, s.configmaps)
+		}(i, spec)
+	}
+	wg.Wait()
+
+	for _, err := range errs {
+		if err != nil {
 			return nil, err
 		}
-		namespaces = append(namespaces, nsName)
 	}
 
-	return namespaces, nil
+	return randomNames, nil
 }
 
 func seedNamespace(ctx context.Context, dynClient dynamic.Interface, nsName string, pods, deployments, configmaps int) error {

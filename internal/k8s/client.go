@@ -3,6 +3,7 @@ package k8s
 
 import (
 	"fmt"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/discovery"
@@ -13,15 +14,15 @@ import (
 
 // NewDynamicClient builds a dynamic Kubernetes client and a REST mapper from the given
 // kubeconfig path and context name. Empty strings use the default kubeconfig and context.
-func NewDynamicClient(kubeconfig, context string) (dynamic.Interface, meta.RESTMapper, error) {
+func NewDynamicClient(kubeconfig, kubeContext string) (dynamic.Interface, meta.RESTMapper, error) {
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 	if kubeconfig != "" {
 		loadingRules.ExplicitPath = kubeconfig
 	}
 
 	overrides := &clientcmd.ConfigOverrides{}
-	if context != "" {
-		overrides.CurrentContext = context
+	if kubeContext != "" {
+		overrides.CurrentContext = kubeContext
 	}
 
 	cfg, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
@@ -31,6 +32,7 @@ func NewDynamicClient(kubeconfig, context string) (dynamic.Interface, meta.RESTM
 	if err != nil {
 		return nil, nil, fmt.Errorf("k8s: build config: %w", err)
 	}
+	cfg.Timeout = 3 * time.Second
 
 	dynClient, err := dynamic.NewForConfig(cfg)
 	if err != nil {
