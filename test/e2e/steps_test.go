@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -65,10 +66,18 @@ func (tc *testContext) theOutputContains(substr string) error {
 	return nil
 }
 
+func (tc *testContext) theExitCodeIsNot(code int) error {
+	if tc.exitCode == code {
+		return fmt.Errorf("expected exit code != %d but got %d", code, tc.exitCode)
+	}
+	return nil
+}
+
 // InitializeScenario registers step definitions with the godog suite.
 func InitializeScenario(sc *godog.ScenarioContext) {
 	tc := &testContext{}
 	sc.Step(`^I run "([^"]*)"$`, tc.iRun)
 	sc.Step(`^the exit code is (\d+)$`, tc.theExitCodeIs)
+	sc.Step(`^the exit code is not (\d+)$`, tc.theExitCodeIsNot)
 	sc.Step(`^the output contains "([^"]*)"$`, tc.theOutputContains)
 }
