@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/cube2222/octosql/aggregates"
@@ -21,7 +23,9 @@ import (
 	"github.com/cube2222/octosql/table_valued_functions"
 	"github.com/ebuildy/kubectl-sql/internal/executor"
 	k8sclient "github.com/ebuildy/kubectl-sql/internal/k8s"
+	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var rootCmd = &cobra.Command{
@@ -70,7 +74,15 @@ func runQuery(cmd *cobra.Command, query string) error {
 	ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 	defer cancel()
 
-	dynClient, mapper, err := k8sclient.NewDynamicClient(kubeconfig, kubeContext)
+	if strings.EqualFold(strings.TrimSpace(query), "show tables") {
+		_, _, discoClient, err := k8sclient.NewDynamicClient(kubeconfig, kubeContext)
+		if err != nil {
+			return fmt.Errorf("kubectl-sql: connect to cluster: %w", err)
+		}
+		return runShowTables(discoClient)
+	}
+
+	dynClient, mapper, _, err := k8sclient.NewDynamicClient(kubeconfig, kubeContext)
 	if err != nil {
 		return fmt.Errorf("kubectl-sql: connect to cluster: %w", err)
 	}
@@ -202,6 +214,45 @@ func runQuery(cmd *cobra.Command, query string) error {
 	)
 
 	return sink.Run(execution.ExecutionContext{Context: ctx, VariableContext: nil})
+}
+
+func runShowTables(discoClient interface {
+	ServerPreferredResources() ([]*metav1.APIResourceList, error)
+}) error {
+	lists, err := discoClient.ServerPreferredResources()
+	if err != nil {
+		return fmt.Errorf("kubectl-sql: list API resources: %w", err)
+	}
+
+	type row struct{ name, aliases, group, version string }
+	var rows []row
+	for _, list := range lists {
+		gv := list.GroupVersion
+		var group, version string
+		if idx := strings.LastIndex(gv, "/"); idx >= 0 {
+			group, version = gv[:idx], gv[idx+1:]
+		} else {
+			version = gv
+		}
+		for _, r := range list.APIResources {
+			if strings.Contains(r.Name, "/") {
+				continue // skip subresources like pods/log
+			}
+			rows = append(rows, row{r.Name, strings.Join(r.ShortNames, ","), group, version})
+		}
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		return rows[i].name < rows[j].name
+	})
+
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"NAME", "ALIASES", "GROUP", "VERSION"})
+	table.SetAutoFormatHeaders(false)
+	for _, r := range rows {
+		table.Append([]string{r.name, r.aliases, r.group, r.version})
+	}
+	table.Render()
+	return nil
 }
 
 // rewriteQuery prefixes bare table names in FROM/JOIN clauses with "k8s."

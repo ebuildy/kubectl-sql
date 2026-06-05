@@ -8,6 +8,6 @@ import (
 )
 
 func TestNewDynamicClient_InvalidKubeconfig(t *testing.T) {
-	_, _, err := NewDynamicClient("/nonexistent/kubeconfig", "")
+	_, _, _, err := NewDynamicClient("/nonexistent/kubeconfig", "")
 	require.Error(t, err)
 }

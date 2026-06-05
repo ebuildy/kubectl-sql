@@ -12,9 +12,9 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-// NewDynamicClient builds a dynamic Kubernetes client and a REST mapper from the given
-// kubeconfig path and context name. Empty strings use the default kubeconfig and context.
-func NewDynamicClient(kubeconfig, kubeContext string) (dynamic.Interface, meta.RESTMapper, error) {
+// NewDynamicClient builds a dynamic Kubernetes client, REST mapper, and discovery client
+// from the given kubeconfig path and context name. Empty strings use the default kubeconfig and context.
+func NewDynamicClient(kubeconfig, kubeContext string) (dynamic.Interface, meta.RESTMapper, discovery.DiscoveryInterface, error) {
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 	if kubeconfig != "" {
 		loadingRules.ExplicitPath = kubeconfig
@@ -30,23 +30,23 @@ func NewDynamicClient(kubeconfig, kubeContext string) (dynamic.Interface, meta.R
 		overrides,
 	).ClientConfig()
 	if err != nil {
-		return nil, nil, fmt.Errorf("k8s: build config: %w", err)
+		return nil, nil, nil, fmt.Errorf("k8s: build config: %w", err)
 	}
 	cfg.Timeout = 3 * time.Second
 
 	dynClient, err := dynamic.NewForConfig(cfg)
 	if err != nil {
-		return nil, nil, fmt.Errorf("k8s: dynamic client: %w", err)
+		return nil, nil, nil, fmt.Errorf("k8s: dynamic client: %w", err)
 	}
 
 	discoClient, err := discovery.NewDiscoveryClientForConfig(cfg)
 	if err != nil {
-		return nil, nil, fmt.Errorf("k8s: discovery client: %w", err)
+		return nil, nil, nil, fmt.Errorf("k8s: discovery client: %w", err)
 	}
 
 	groupResources, err := restmapper.GetAPIGroupResources(discoClient)
 	if err != nil {
-		return nil, nil, fmt.Errorf("k8s: API group resources: %w", err)
+		return nil, nil, nil, fmt.Errorf("k8s: API group resources: %w", err)
 	}
 
 	mapper := restmapper.NewShortcutExpander(
@@ -55,5 +55,5 @@ func NewDynamicClient(kubeconfig, kubeContext string) (dynamic.Interface, meta.R
 		nil,
 	)
 
-	return dynClient, mapper, nil
+	return dynClient, mapper, discoClient, nil
 }

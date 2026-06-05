@@ -26,6 +26,11 @@ Feature: SQL queries against envtest cluster
     Then the exit code is 0
     And the output has at least 10 rows
 
+  Scenario: SHOW TABLES lists queryable resources
+    When I run kubectl-sql "SHOW TABLES" against the envtest cluster
+    Then the exit code is 0
+    And the output contains "pods"
+
   Scenario: --namespace flag scopes COUNT(*) to a single namespace
     When I run kubectl-sql --namespace "main" with query "SELECT COUNT(*) FROM pods" against the envtest cluster
     Then the exit code is 0
