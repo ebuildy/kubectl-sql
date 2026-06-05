@@ -132,6 +132,14 @@ func (tc *testContext) iPickARandomFixtureNamespace() error {
 	return nil
 }
 
+func (tc *testContext) iRunKubectlSqlWithOutputFlagAgainstEnvtest(format, query string) error {
+	kc, ok := envtestKubeconfig()
+	if !ok {
+		return godog.ErrSkip
+	}
+	return tc.runBinary("--kubeconfig", kc, "--output", format, query)
+}
+
 func (tc *testContext) theOutputHasAtLeastRows(min int) error {
 	count := countDataRows(tc.stdout)
 	if count < min {
@@ -196,6 +204,7 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I run kubectl-sql "([^"]*)" against the envtest cluster$`, tc.iRunKubectlSqlAgainstEnvtest)
 	sc.Step(`^I run kubectl-sql with namespace query "([^"]*)" against the envtest cluster$`, tc.iRunKubectlSqlWithNamespaceQueryAgainstEnvtest)
 	sc.Step(`^I run kubectl-sql --namespace "([^"]*)" with query "([^"]*)" against the envtest cluster$`, tc.iRunKubectlSqlWithNamespaceFlagAgainstEnvtest)
+	sc.Step(`^I run kubectl-sql --output "([^"]*)" with query "([^"]*)" against the envtest cluster$`, tc.iRunKubectlSqlWithOutputFlagAgainstEnvtest)
 	sc.Step(`^the output has at least (\d+) rows$`, tc.theOutputHasAtLeastRows)
 	sc.Step(`^the output has at most (\d+) rows$`, tc.theOutputHasAtMostRows)
 	sc.Step(`^the output has between (\d+) and (\d+) rows$`, tc.theOutputHasBetweenAndRows)

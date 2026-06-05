@@ -31,6 +31,17 @@ Feature: SQL queries against envtest cluster
     Then the exit code is 0
     And the output contains "pods"
 
+  Scenario: JSON output format returns valid JSON array
+    When I run kubectl-sql --output "json" with query "SELECT name FROM pods LIMIT 3" against the envtest cluster
+    Then the exit code is 0
+    And the output contains "["
+    And the output contains "name"
+
+  Scenario: CSV output format returns CSV with header
+    When I run kubectl-sql --output "csv" with query "SELECT name FROM pods LIMIT 3" against the envtest cluster
+    Then the exit code is 0
+    And the output contains "name"
+
   Scenario: --namespace flag scopes COUNT(*) to a single namespace
     When I run kubectl-sql --namespace "main" with query "SELECT COUNT(*) FROM pods" against the envtest cluster
     Then the exit code is 0

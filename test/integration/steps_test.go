@@ -103,6 +103,10 @@ func (tc *testContext) iRunKubectlSqlWithNamespaceFlag(ns, query string) error {
 	return tc.runBinary("--namespace", ns, query)
 }
 
+func (tc *testContext) iRunKubectlSqlWithOutputFlag(format, query string) error {
+	return tc.runBinary("--output", format, query)
+}
+
 func (tc *testContext) theOutputContains(s string) error {
 	if !strings.Contains(tc.stdout, s) {
 		return fmt.Errorf("expected output to contain %q\noutput:\n%s", s, tc.stdout)
@@ -156,6 +160,7 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I run kubectl-sql "([^"]*)" against the envtest cluster$`, tc.iRunKubectlSql)
 	sc.Step(`^I run kubectl-sql with namespace query "([^"]*)" against the envtest cluster$`, tc.iRunKubectlSqlInNamespace)
 	sc.Step(`^I run kubectl-sql --namespace "([^"]*)" with query "([^"]*)" against the envtest cluster$`, tc.iRunKubectlSqlWithNamespaceFlag)
+	sc.Step(`^I run kubectl-sql --output "([^"]*)" with query "([^"]*)" against the envtest cluster$`, tc.iRunKubectlSqlWithOutputFlag)
 	sc.Step(`^the output has at least (\d+) rows$`, tc.theOutputHasAtLeastRows)
 	sc.Step(`^the output has at most (\d+) rows$`, tc.theOutputHasAtMostRows)
 	sc.Step(`^the output has between (\d+) and (\d+) rows$`, tc.theOutputHasBetweenAndRows)
