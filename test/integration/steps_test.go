@@ -3,9 +3,13 @@
 package integration
 
 import (
+	"bytes"
+	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/cucumber/godog"
 )
@@ -18,14 +22,28 @@ type testContext struct {
 }
 
 func (tc *testContext) iRunKubectlSql(query string) error {
+	return tc.runBinary(query)
+}
+
+func (tc *testContext) runBinary(args ...string) error {
+	const deadline = 5 * time.Second
 	binary := "../../bin/kubectl-sql"
-	cmd := exec.Command(binary, "--kubeconfig", envKubeconfig, query)
-	var outBuf, errBuf strings.Builder
+	baseArgs := []string{"--kubeconfig", envKubeconfig, "--timeout", "10s"}
+	ctx, cancel := context.WithTimeout(context.Background(), deadline)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, binary, append(baseArgs, args...)...)
+	cmd.Env = append(os.Environ(), "TERM=dumb")
+	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
+
 	err := cmd.Run()
 	tc.stdout = outBuf.String()
 	tc.stderr = errBuf.String()
+	if ctx.Err() != nil {
+		return fmt.Errorf("binary timed out after %s\nstdout: %s\nstderr: %s", deadline, tc.stdout, tc.stderr)
+	}
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			tc.exitCode = exitErr.ExitCode()
@@ -82,23 +100,7 @@ func (tc *testContext) iRunKubectlSqlInNamespace(query string) error {
 }
 
 func (tc *testContext) iRunKubectlSqlWithNamespaceFlag(ns, query string) error {
-	binary := "../../bin/kubectl-sql"
-	cmd := exec.Command(binary, "--kubeconfig", envKubeconfig, "--namespace", ns, query)
-	var outBuf, errBuf strings.Builder
-	cmd.Stdout = &outBuf
-	cmd.Stderr = &errBuf
-	err := cmd.Run()
-	tc.stdout = outBuf.String()
-	tc.stderr = errBuf.String()
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			tc.exitCode = exitErr.ExitCode()
-			return nil
-		}
-		return err
-	}
-	tc.exitCode = 0
-	return nil
+	return tc.runBinary("--namespace", ns, query)
 }
 
 func (tc *testContext) theOutputContains(s string) error {

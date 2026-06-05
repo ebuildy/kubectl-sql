@@ -1,12 +1,14 @@
 BINARY := ./bin/kubectl-sql
 MODULE := github.com/ebuildy/kubectl-sql
 
-GOLANGCI_LINT_VERSION := v2.10.1
+GOLANGCI_LINT_VERSION := v2.12.2
 
 .PHONY: build install lint test test-integration coverage e2e e2e-run-fake dev-deps
 
 dev-deps:
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+	setup-envtest use
 	go mod download
 
 build:
@@ -22,12 +24,10 @@ test:
 	go test ./... -race -count=1
 
 test-integration:
-	$(eval KUBE_ASSETS := $(shell setup-envtest use -p path))
-	KUBEBUILDER_ASSETS="$(KUBE_ASSETS)" go test -tags integration ./test/integration/... -v -count=1
+	KUBEBUILDER_ASSETS="$$(setup-envtest use -p path --installed-only)" go test -tags integration ./test/integration/... -v -count=1
 
 e2e-run-fake: build
-	$(eval KUBE_ASSETS := $(shell setup-envtest use -p path))
-	KUBEBUILDER_ASSETS="$(KUBE_ASSETS)" go test -tags integration ./test/integration/... -v -count=1
+	KUBEBUILDER_ASSETS="$$(setup-envtest use -p path --installed-only)" go test -tags integration ./test/integration/... -v -count=1
 
 e2e: build
 	go test -tags e2e ./test/e2e/... -v
