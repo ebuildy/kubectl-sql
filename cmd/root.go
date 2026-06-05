@@ -4,7 +4,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"sort"
 	"strings"
@@ -15,14 +14,13 @@ import (
 	"github.com/cube2222/octosql/functions"
 	"github.com/cube2222/octosql/logical"
 	"github.com/cube2222/octosql/optimizer"
-	"github.com/cube2222/octosql/outputs/batch"
-	"github.com/cube2222/octosql/outputs/formats"
 	"github.com/cube2222/octosql/parser"
 	"github.com/cube2222/octosql/parser/sqlparser"
 	"github.com/cube2222/octosql/physical"
 	"github.com/cube2222/octosql/table_valued_functions"
 	"github.com/ebuildy/kubectl-sql/internal/executor"
 	k8sclient "github.com/ebuildy/kubectl-sql/internal/k8s"
+	"github.com/ebuildy/kubectl-sql/internal/output"
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -46,10 +44,13 @@ Example:
 }
 
 // Execute runs the root command and exits on error.
+// os.Exit is called unconditionally to terminate background goroutines
+// spawned by octosql's ristretto caches which have no cleanup path.
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+	os.Exit(0)
 }
 
 func init() {
@@ -200,20 +201,19 @@ func runQuery(cmd *cobra.Command, query string) error {
 	}
 	outSchema := physical.Schema{Fields: outFields, TimeField: physicalPlan.Schema.TimeField}
 
-	sink := batch.NewOutputPrinter(
+	outputFormat, _ := cmd.Flags().GetString("output")
+	return output.Render(
+		execution.ExecutionContext{Context: ctx, VariableContext: nil},
 		execPlan,
-		execOrderBy,
-		logical.DirectionsToMultipliers(outputOptions.OrderByDirections),
-		limitInt,
-		physicalPlan.Schema.NoRetractions,
-		outSchema,
-		func(w io.Writer) batch.Format {
-			return formats.NewTableFormatter(w)
+		output.Options{
+			Format:          outputFormat,
+			Limit:           limitInt,
+			OrderBy:         execOrderBy,
+			OrderDirections: logical.DirectionsToMultipliers(outputOptions.OrderByDirections),
+			Schema:          outSchema,
+			Writer:          os.Stdout,
 		},
-		false,
 	)
-
-	return sink.Run(execution.ExecutionContext{Context: ctx, VariableContext: nil})
 }
 
 func runShowTables(discoClient interface {

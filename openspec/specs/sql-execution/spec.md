@@ -9,7 +9,7 @@ Defines the end-to-end SQL query execution contract: how queries are accepted fr
 ## Requirements
 
 ### Requirement: SQL query is accepted as a positional argument
-The root command SHALL accept a single positional SQL string as its first argument and execute it against the Kubernetes cluster. If the query is `SHOW TABLES` (case-insensitive), it SHALL be handled before the octosql pipeline and return a table of all queryable Kubernetes resource types.
+The root command SHALL accept a single positional SQL string as its first argument and execute it against the Kubernetes cluster. If the query is `SHOW TABLES` (case-insensitive), it SHALL be handled before the octosql pipeline and return a table of all queryable Kubernetes resource types. Results SHALL be rendered by `internal/output.Render` so the process always exits cleanly regardless of terminal environment.
 
 #### Scenario: Query executes and prints a table
 - **WHEN** the user runs `kubectl-sql "SELECT name, namespace FROM pods"`
@@ -26,6 +26,10 @@ The root command SHALL accept a single positional SQL string as its first argume
 #### Scenario: SHOW TABLES is handled before SQL parsing
 - **WHEN** the user runs `kubectl-sql "SHOW TABLES"`
 - **THEN** the command returns a table of resource types without invoking the octosql pipeline, and exits 0
+
+#### Scenario: Process exits without hanging in any terminal environment
+- **WHEN** `kubectl-sql` is run from a VS Code terminal, tmux, SSH session, or any environment without a controlling TTY
+- **THEN** the process prints results and exits 0 without hanging
 
 ---
 
