@@ -32,3 +32,17 @@ type Field struct {
 	Type      FieldType
 	SubFields []Field
 }
+
+// ignoredFieldNames are server-managed metadata fields that add noise to query
+// output and schema/autocomplete without being useful to query. They are dropped
+// wherever subfields are built (they live under metadata, e.g. metadata->managedFields).
+var ignoredFieldNames = map[string]bool{
+	"managedFields":   true,
+	"resourceVersion": true,
+	"generation":      true,
+}
+
+// isIgnoredField reports whether a field name should be omitted from inference.
+func isIgnoredField(name string) bool {
+	return ignoredFieldNames[name]
+}

@@ -123,7 +123,7 @@ func schemaToFields(s *spec.Schema) []Field {
 	// Sort keys for deterministic order.
 	keys := make([]string, 0, len(s.Properties))
 	for k := range s.Properties {
-		if guaranteedNames[k] {
+		if guaranteedNames[k] || isIgnoredField(k) {
 			continue
 		}
 		keys = append(keys, k)
@@ -146,6 +146,9 @@ func openAPISchemaToField(name string, s *spec.Schema) Field {
 	if ft == FieldTypeObject && len(s.Properties) > 0 {
 		keys := make([]string, 0, len(s.Properties))
 		for k := range s.Properties {
+			if isIgnoredField(k) {
+				continue
+			}
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)

@@ -2,6 +2,7 @@ package schema
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	k8sschema "k8s.io/apimachinery/pkg/runtime/schema"
@@ -160,6 +161,42 @@ func TestWalkObject_NestedMap(t *testing.T) {
 	}
 	if _, aliasFound := findField(fields, "metadata_labels_app"); aliasFound {
 		t.Error("walkObject must not emit flattened alias field metadata_labels_app")
+	}
+}
+
+func TestWalkObject_IgnoresServerManagedMetadata(t *testing.T) {
+	obj := map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"name":   "pod-a",
+			"labels": map[string]interface{}{"app": "nginx"},
+			"managedFields": []interface{}{
+				map[string]interface{}{"manager": "kubelet", "apiVersion": "v1"},
+			},
+			"resourceVersion": "12345",
+			"generation":      int64(3),
+		},
+	}
+	fields := walkObject(obj)
+	meta, ok := findField(fields, "metadata")
+	if !ok {
+		t.Fatal("expected metadata field")
+	}
+	for _, sf := range meta.SubFields {
+		if isIgnoredField(sf.Name) {
+			t.Errorf("metadata SubFields must not include server-managed %q, got: %v",
+				sf.Name, fieldNames(meta.SubFields))
+		}
+	}
+	// Useful fields are still present.
+	if _, ok := findField(meta.SubFields, "labels"); !ok {
+		t.Errorf("expected labels subfield to remain, got: %v", fieldNames(meta.SubFields))
+	}
+	// No flattened slice-index columns for managedFields, e.g.
+	// metadata_managedFields_0_apiVersion.
+	for _, f := range fields {
+		if strings.HasPrefix(f.Name, "metadata_managedFields") {
+			t.Errorf("must not emit flattened managedFields column %q", f.Name)
+		}
 	}
 }
 

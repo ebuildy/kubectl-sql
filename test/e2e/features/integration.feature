@@ -90,6 +90,12 @@ Feature: SQL queries against envtest cluster
     Then the exit code is 0
     And the output contains "status"
 
+  Scenario: DESCRIBE TABLE pods omits server-managed metadata fields
+    When I run kubectl-sql "DESCRIBE TABLE pods" against the envtest cluster
+    Then the exit code is 0
+    And the output does not contain "managedFields"
+    And the output does not contain "resourceVersion"
+
   Scenario: DESCRIBE TABLE configmaps lists name column
     When I run kubectl-sql "DESCRIBE TABLE configmaps" against the envtest cluster
     Then the exit code is 0

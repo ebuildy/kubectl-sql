@@ -37,7 +37,7 @@ func walkObject(obj map[string]interface{}) []Field {
 
 	var fields []Field
 	for _, key := range keys {
-		if guaranteedNames[key] {
+		if guaranteedNames[key] || isIgnoredField(key) {
 			continue
 		}
 		val := obj[key]
@@ -67,6 +67,9 @@ func walkSliceChildren(parentKey string, obj map[string]interface{}) []Field {
 	}
 	sort.Strings(subKeys)
 	for _, subKey := range subKeys {
+		if isIgnoredField(subKey) {
+			continue
+		}
 		v, ok := obj[subKey].([]interface{})
 		if !ok {
 			continue
@@ -128,6 +131,9 @@ func walkSubFields(obj map[string]interface{}) []Field {
 
 	fields := make([]Field, 0, len(keys))
 	for _, k := range keys {
+		if isIgnoredField(k) {
+			continue
+		}
 		v := obj[k]
 		f := Field{Name: k, Type: typeOf(v)}
 		if nested, ok := v.(map[string]interface{}); ok && len(nested) > 0 {
@@ -147,6 +153,9 @@ func walkLeafFields(obj map[string]interface{}) []Field {
 	sort.Strings(keys)
 	fields := make([]Field, 0, len(keys))
 	for _, k := range keys {
+		if isIgnoredField(k) {
+			continue
+		}
 		fields = append(fields, Field{Name: k, Type: typeOf(obj[k])})
 	}
 	return fields

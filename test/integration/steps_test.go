@@ -162,6 +162,13 @@ func (tc *testContext) theOutputContains(s string) error {
 	return fmt.Errorf("expected output to contain %q\nstdout:\n%s\nstderr:\n%s", s, tc.stdout, tc.stderr)
 }
 
+func (tc *testContext) theOutputDoesNotContain(s string) error {
+	if strings.Contains(tc.stdout, s) || strings.Contains(tc.stderr, s) {
+		return fmt.Errorf("expected output NOT to contain %q\nstdout:\n%s\nstderr:\n%s", s, tc.stdout, tc.stderr)
+	}
+	return nil
+}
+
 // theOutputProducesJQ runs a JQ query against the JSON stdout and asserts it
 // produces at least one truthy (non-null, non-false) result.
 // Example step: `the output produces JQ "[.[] | select(.\"pods.name\" != null)] | length > 0"`
@@ -246,6 +253,7 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the exit code is (\d+)$`, tc.theExitCodeIs)
 	sc.Step(`^the exit code is not (\d+)$`, tc.theExitCodeIsNot)
 	sc.Step(`^the output contains "([^"]*)"$`, tc.theOutputContains)
+	sc.Step(`^the output does not contain "([^"]*)"$`, tc.theOutputDoesNotContain)
 	sc.Step(`^the output produces JQ "([^"]*)"$`, tc.theOutputProducesJQ)
 	sc.Step(`^I run kubectl-sql --watch "([^"]*)" against the envtest cluster$`, tc.iRunKubectlSqlWithWatchFlag)
 	sc.Step(`^I pipe "([^"]*)" to kubectl-sql against the envtest cluster$`, tc.iPipeQueryToKubectlSql)
