@@ -32,6 +32,9 @@ kubectl-sql/
 ├── cmd/
 │   └── root.go                  ← root cobra command, flags, help
 │
+├── external/                    ← some used lib code source for AI
+|   └── octosql/                 ← octosql lib code source
+│
 ├── internal/
 │   ├── parser/                  ← SQL → AST (SELECT, FROM, WHERE, ORDER, LIMIT)
 │   │   ├── lexer.go
@@ -125,7 +128,7 @@ behavioral deltas back into the relevant spec file here.
 
 ### Language and toolchain
 
-- **Go 1.23+** — use the version pinned in `go.mod`
+- **Go 1.26+** — use the version pinned in `go.mod`
 - **`golangci-lint`** — run before every commit: `make lint`
 - **No global state** — all dependencies injected via constructors or context
 - **Errors wrapped with context** — `fmt.Errorf("planner: %w", err)` at every boundary

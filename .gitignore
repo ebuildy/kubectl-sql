@@ -1,3 +1,4 @@
 bin/kubectl-sql
 coverage.out
 coverage.html
+external/octosql
