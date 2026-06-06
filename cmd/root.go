@@ -327,23 +327,39 @@ func rewriteQuery(query string) string {
 }
 
 // dottedWildcardRe matches dotted paths ending in .* (e.g. metadata.labels.*).
-var dottedWildcardRe = regexp.MustCompile(`\b([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)+)\.\*`)
+var dottedWildcardRe = regexp.MustCompile(`\b([a-zA-Z_][a-zA-Z0-9_]*(?:(?:\.[a-zA-Z_][a-zA-Z0-9_]*)+|\[\d+\](?:\.[a-zA-Z_][a-zA-Z0-9_]*)*))\.\*`)
 
-// dottedFieldRe matches dotted identifiers with one or more dots.
+// dottedFieldRe matches dotted paths that contain NO array indices.
 var dottedFieldRe = regexp.MustCompile(`\b([a-zA-Z_][a-zA-Z0-9_]*)(\.[a-zA-Z_][a-zA-Z0-9_]*)+\b`)
 
-// rewriteDottedFields rewrites dot-notation field paths to octosql's -> struct access operator:
-//   - metadata.labels.app   → metadata->labels->app
-//   - metadata.labels       → metadata->labels
-//   - metadata.labels.*     → metadata->labels   (wildcard → parent struct)
+// arrayIndexPathRe matches paths that contain at least one array index [N].
+// Requires at least one [N] bracket — pure dotted paths are excluded.
+// e.g. spec.volumes[0], spec.volumes[0].configMap, spec.containers[1].name
+var arrayIndexPathRe = regexp.MustCompile(`\b[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*|\[\d+\])*\[\d+\](?:\.[a-zA-Z_][a-zA-Z0-9_]*|\[\d+\])*`)
+
+// rewriteDottedFields rewrites field path notation:
+//   - Pure dotted paths (no array indices): metadata.labels.app → metadata->labels->app
+//   - Paths with array indices: spec.volumes[0].configMap → spec_volumes_0_configMap
+//   - Wildcard suffix stripped first: metadata.labels.* → metadata->labels
 //
 // k8s.pods style table qualifiers are left untouched.
 func rewriteDottedFields(query string) string {
-	// First pass: strip wildcard suffix (metadata.labels.* → metadata.labels)
+	// Pass 1: paths with array indices → underscore flat names (must run before arrow rewrite)
+	query = arrayIndexPathRe.ReplaceAllStringFunc(query, func(match string) string {
+		if strings.HasPrefix(match, "k8s.") || !strings.ContainsAny(match, "[") {
+			return match
+		}
+		// spec.volumes[0].configMap → spec_volumes_0_configMap
+		s := strings.ReplaceAll(match, "[", "_")
+		s = strings.ReplaceAll(s, "]", "")
+		s = strings.ReplaceAll(s, ".", "_")
+		return s
+	})
+	// Pass 2: strip wildcard suffix (metadata.labels.* → metadata.labels)
 	query = dottedWildcardRe.ReplaceAllStringFunc(query, func(match string) string {
 		return match[:len(match)-2] // strip .*
 	})
-	// Second pass: convert remaining dotted paths to -> chains, skip k8s.* table qualifiers
+	// Pass 3: pure dotted paths → arrow chains, skip k8s.* table qualifiers
 	query = dottedFieldRe.ReplaceAllStringFunc(query, func(match string) string {
 		if strings.HasPrefix(match, "k8s.") {
 			return match

@@ -40,6 +40,12 @@ func (c *CompositeInferrer) InferFields(ctx context.Context, gvr k8sschema.Group
 		secMap[f.Name] = f
 	}
 
+	// Build index of primary field names.
+	primarySeen := make(map[string]bool, len(primary))
+	for _, f := range primary {
+		primarySeen[f.Name] = true
+	}
+
 	merged := make([]Field, len(primary))
 	copy(merged, primary)
 	for i, f := range merged {
@@ -47,18 +53,26 @@ func (c *CompositeInferrer) InferFields(ctx context.Context, gvr k8sschema.Group
 		if !ok {
 			continue
 		}
-		// If the primary field has no SubFields but the secondary knows this is an
-		// object with SubFields (e.g. primary returned a $ref-only schema typed as
-		// String), adopt the secondary's type and SubFields entirely.
+		// Primary field typed as String (unresolved $ref) but secondary knows it's an
+		// object with SubFields — adopt secondary's type and SubFields.
 		if f.Type != FieldTypeObject && sf.Type == FieldTypeObject && len(sf.SubFields) > 0 {
 			merged[i].Type = sf.Type
 			merged[i].SubFields = sf.SubFields
 			continue
 		}
-		// If primary already typed it as Object but has no SubFields, fill them in.
+		// Primary already typed it as Object but has no SubFields — fill them in.
 		if f.Type == FieldTypeObject && len(f.SubFields) == 0 && len(sf.SubFields) > 0 {
 			merged[i].SubFields = sf.SubFields
 		}
 	}
+
+	// Append secondary-only fields (e.g. flattened slice index columns like
+	// spec_volumes_0_configMap that OpenAPI doesn't know about).
+	for _, sf := range secondary {
+		if !primarySeen[sf.Name] {
+			merged = append(merged, sf)
+		}
+	}
+
 	return merged, nil
 }

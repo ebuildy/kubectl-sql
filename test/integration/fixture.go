@@ -21,10 +21,12 @@ var (
 	configmapsGVR  = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "configmaps"}
 )
 
-// SeedFixtures creates a "main" namespace with exactly 2 pods, then 10 random
-// namespaces each containing 3-5 Pods (phase=Running), 1-2 Deployments, and
-// 1-2 ConfigMaps. Namespaces are seeded in parallel. Returns the list of
-// random namespace names (excludes "main").
+// SeedFixtures creates:
+//   - "main" namespace: 2 pods
+//   - "nginx-test" namespace: a ConfigMap "nginx-config" and a pod "nginx" mounting it
+//   - 10 random namespaces: 3-5 pods, 1-2 deployments, 1-2 configmaps each
+//
+// Returns the list of random namespace names (excludes "main" and "nginx-test").
 func SeedFixtures(ctx context.Context, dynClient dynamic.Interface) ([]string, error) {
 	const namespaceCount = 10
 
@@ -42,14 +44,14 @@ func SeedFixtures(ctx context.Context, dynClient dynamic.Interface) ([]string, e
 		randomNames[i] = randomName()
 		specs = append(specs, nsSpec{
 			name:        randomNames[i],
-			pods:        3 + rng.Intn(3),   // 3-5
-			deployments: 1 + rng.Intn(2),   // 1-2
-			configmaps:  1 + rng.Intn(2),   // 1-2
+			pods:        3 + rng.Intn(3), // 3-5
+			deployments: 1 + rng.Intn(2), // 1-2
+			configmaps:  1 + rng.Intn(2), // 1-2
 		})
 	}
 
 	var wg sync.WaitGroup
-	errs := make([]error, len(specs))
+	errs := make([]error, len(specs)+1)
 	for i, spec := range specs {
 		wg.Add(1)
 		go func(idx int, s nsSpec) {
@@ -57,6 +59,12 @@ func SeedFixtures(ctx context.Context, dynClient dynamic.Interface) ([]string, e
 			errs[idx] = seedNamespace(ctx, dynClient, s.name, s.pods, s.deployments, s.configmaps)
 		}(i, spec)
 	}
+	// Seed nginx-test namespace with the deterministic nginx pod.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		errs[len(specs)] = seedNginxNamespace(ctx, dynClient)
+	}()
 	wg.Wait()
 
 	for _, err := range errs {
@@ -66,6 +74,78 @@ func SeedFixtures(ctx context.Context, dynClient dynamic.Interface) ([]string, e
 	}
 
 	return randomNames, nil
+}
+
+// seedNginxNamespace creates the "nginx-test" namespace containing a ConfigMap
+// "nginx-config" and a pod "nginx" that mounts it as a volume.
+func seedNginxNamespace(ctx context.Context, dynClient dynamic.Interface) error {
+	const ns = "nginx-test"
+
+	nsObj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "Namespace",
+			"metadata":   map[string]interface{}{"name": ns},
+		},
+	}
+	if _, err := dynClient.Resource(namespacesGVR).Create(ctx, nsObj, metav1.CreateOptions{}); err != nil {
+		return fmt.Errorf("create namespace %s: %w", ns, err)
+	}
+
+	cm := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata":   map[string]interface{}{"name": "nginx-config", "namespace": ns},
+			"data":       map[string]interface{}{"nginx.conf": "server {}"},
+		},
+	}
+	if _, err := dynClient.Resource(configmapsGVR).Namespace(ns).Create(ctx, cm, metav1.CreateOptions{}); err != nil {
+		return fmt.Errorf("create configmap nginx-config: %w", err)
+	}
+
+	pod := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "Pod",
+			"metadata": map[string]interface{}{
+				"name":      "nginx",
+				"namespace": ns,
+				"labels":    map[string]interface{}{"app": "nginx"},
+			},
+			"spec": map[string]interface{}{
+				"containers": []interface{}{
+					map[string]interface{}{
+						"name":  "nginx",
+						"image": "nginx:latest",
+						"volumeMounts": []interface{}{
+							map[string]interface{}{
+								"name":      "config",
+								"mountPath": "/etc/nginx",
+							},
+						},
+					},
+				},
+				"volumes": []interface{}{
+					map[string]interface{}{
+						"name": "config",
+						"configMap": map[string]interface{}{
+							"name": "nginx-config",
+						},
+					},
+				},
+			},
+		},
+	}
+	created, err := dynClient.Resource(podsGVR).Namespace(ns).Create(ctx, pod, metav1.CreateOptions{})
+	if err != nil {
+		return fmt.Errorf("create pod nginx: %w", err)
+	}
+	created.Object["status"] = map[string]interface{}{
+		"phase": string(corev1.PodRunning),
+	}
+	_, err = dynClient.Resource(podsGVR).Namespace(ns).UpdateStatus(ctx, created, metav1.UpdateOptions{})
+	return err
 }
 
 func seedNamespace(ctx context.Context, dynClient dynamic.Interface, nsName string, pods, deployments, configmaps int) error {

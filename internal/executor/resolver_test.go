@@ -20,6 +20,20 @@ func TestResolveField(t *testing.T) {
 		"status": map[string]interface{}{
 			"phase": "Running",
 		},
+		"spec": map[string]interface{}{
+			"volumes": []interface{}{
+				map[string]interface{}{
+					"name": "config",
+					"configMap": map[string]interface{}{
+						"name": "nginx-config",
+					},
+				},
+				map[string]interface{}{
+					"name":     "data",
+					"emptyDir": map[string]interface{}{},
+				},
+			},
+		},
 		"count": int64(3),
 	}
 
@@ -53,5 +67,25 @@ func TestResolveField(t *testing.T) {
 
 	t.Run("bracket label missing key returns nil", func(t *testing.T) {
 		assert.Nil(t, ResolveField(obj, "metadata.labels['missing']"))
+	})
+
+	t.Run("numeric array index", func(t *testing.T) {
+		assert.Equal(t, "config", ResolveField(obj, "spec.volumes[0].name"))
+	})
+
+	t.Run("numeric array index second element", func(t *testing.T) {
+		assert.Equal(t, "data", ResolveField(obj, "spec.volumes[1].name"))
+	})
+
+	t.Run("numeric array index nested field", func(t *testing.T) {
+		assert.Equal(t, "nginx-config", ResolveField(obj, "spec.volumes[0].configMap.name"))
+	})
+
+	t.Run("numeric array index out of bounds returns nil", func(t *testing.T) {
+		assert.Nil(t, ResolveField(obj, "spec.volumes[5].name"))
+	})
+
+	t.Run("numeric array index on non-slice returns nil", func(t *testing.T) {
+		assert.Nil(t, ResolveField(obj, "metadata[0]"))
 	})
 }

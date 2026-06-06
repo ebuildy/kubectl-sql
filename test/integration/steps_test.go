@@ -5,6 +5,7 @@ package integration
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
+	"github.com/itchyny/gojq"
 )
 
 type testContext struct {
@@ -22,7 +24,8 @@ type testContext struct {
 }
 
 func (tc *testContext) iRunKubectlSql(query string) error {
-	return tc.runBinary(query)
+	// Default to JSON output so steps can use JQ assertions.
+	return tc.runBinary("--output", "json", query)
 }
 
 func (tc *testContext) runBinary(args ...string) error {
@@ -107,7 +110,7 @@ func (tc *testContext) iRunKubectlSqlInNamespace(query string) error {
 }
 
 func (tc *testContext) iRunKubectlSqlWithNamespaceFlag(ns, query string) error {
-	return tc.runBinary("--namespace", ns, query)
+	return tc.runBinary("--output", "json", "--namespace", ns, query)
 }
 
 func (tc *testContext) iRunKubectlSqlWithOutputFlag(format, query string) error {
@@ -119,6 +122,37 @@ func (tc *testContext) theOutputContains(s string) error {
 		return fmt.Errorf("expected output to contain %q\noutput:\n%s", s, tc.stdout)
 	}
 	return nil
+}
+
+// theOutputProducesJQ runs a JQ query against the JSON stdout and asserts it
+// produces at least one truthy (non-null, non-false) result.
+// Example step: `the output produces JQ "[.[] | select(.\"pods.name\" != null)] | length > 0"`
+func (tc *testContext) theOutputProducesJQ(jqExpr string) error {
+	var input interface{}
+	if err := json.Unmarshal([]byte(tc.stdout), &input); err != nil {
+		return fmt.Errorf("output is not valid JSON: %w\noutput:\n%s", err, tc.stdout)
+	}
+
+	q, err := gojq.Parse(jqExpr)
+	if err != nil {
+		return fmt.Errorf("invalid JQ expression %q: %w", jqExpr, err)
+	}
+
+	iter := q.Run(input)
+	for {
+		v, ok := iter.Next()
+		if !ok {
+			break
+		}
+		if err, ok := v.(error); ok {
+			return fmt.Errorf("JQ error for %q: %w\noutput:\n%s", jqExpr, err, tc.stdout)
+		}
+		// Any non-null, non-false result satisfies the assertion.
+		if v != nil && v != false {
+			return nil
+		}
+	}
+	return fmt.Errorf("JQ expression %q produced no truthy result\noutput:\n%s", jqExpr, tc.stdout)
 }
 
 // countDataRows counts data rows in table output, excluding the header row and separator lines.
@@ -174,5 +208,6 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the exit code is (\d+)$`, tc.theExitCodeIs)
 	sc.Step(`^the exit code is not (\d+)$`, tc.theExitCodeIsNot)
 	sc.Step(`^the output contains "([^"]*)"$`, tc.theOutputContains)
+	sc.Step(`^the output produces JQ "([^"]*)"$`, tc.theOutputProducesJQ)
 	sc.Step(`^I pick a random fixture namespace$`, tc.iPickARandomFixtureNamespace)
 }
