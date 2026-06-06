@@ -82,7 +82,7 @@ func Render(execCtx execution.ExecutionContext, node execution.Node, opts Option
 
 	switch opts.Format {
 	case "json":
-		return renderJSON(opts.Writer, fields, rows)
+		return renderJSON(opts.Writer, fields, opts.Schema.Fields, rows)
 	case "csv":
 		return renderCSV(opts.Writer, fields, rows)
 	default:
@@ -114,12 +114,17 @@ func renderTable(w io.Writer, fields []string, rows [][]octosql.Value) error {
 	return nil
 }
 
-func renderJSON(w io.Writer, fields []string, rows [][]octosql.Value) error {
+func renderJSON(w io.Writer, fields []string, schemaFields []physical.SchemaField, rows [][]octosql.Value) error {
 	out := make([]map[string]interface{}, 0, len(rows))
 	for _, row := range rows {
 		obj := make(map[string]interface{}, len(fields))
 		for i, f := range fields {
-			if i < len(row) {
+			if i >= len(row) {
+				continue
+			}
+			if i < len(schemaFields) {
+				obj[f] = valueToNativeTyped(row[i], schemaFields[i].Type)
+			} else {
 				obj[f] = valueToNative(row[i])
 			}
 		}
@@ -128,6 +133,22 @@ func renderJSON(w io.Writer, fields []string, rows [][]octosql.Value) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(out)
+}
+
+// valueToNativeTyped converts an octosql.Value to a Go native value using the
+// schema type for struct field name resolution.
+func valueToNativeTyped(v octosql.Value, t octosql.Type) interface{} {
+	if v.TypeID == octosql.TypeIDStruct && t.TypeID == octosql.TypeIDStruct {
+		out := make(map[string]interface{}, len(v.Struct))
+		for i, elem := range v.Struct {
+			if i >= len(t.Struct.Fields) {
+				break
+			}
+			out[t.Struct.Fields[i].Name] = valueToNativeTyped(elem, t.Struct.Fields[i].Type)
+		}
+		return out
+	}
+	return valueToNative(v)
 }
 
 func renderCSV(w io.Writer, fields []string, rows [][]octosql.Value) error {

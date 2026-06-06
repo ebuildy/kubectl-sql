@@ -86,6 +86,13 @@ func (tc *testContext) theExitCodeIs(code int) error {
 	return nil
 }
 
+func (tc *testContext) theExitCodeIsNot(code int) error {
+	if tc.exitCode == code {
+		return fmt.Errorf("expected exit code != %d\nstdout: %s\nstderr: %s", code, tc.stdout, tc.stderr)
+	}
+	return nil
+}
+
 func (tc *testContext) iPickARandomFixtureNamespace() error {
 	if len(envNamespaces) == 0 {
 		return fmt.Errorf("no fixture namespaces available")
@@ -165,6 +172,7 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the output has at most (\d+) rows$`, tc.theOutputHasAtMostRows)
 	sc.Step(`^the output has between (\d+) and (\d+) rows$`, tc.theOutputHasBetweenAndRows)
 	sc.Step(`^the exit code is (\d+)$`, tc.theExitCodeIs)
+	sc.Step(`^the exit code is not (\d+)$`, tc.theExitCodeIsNot)
 	sc.Step(`^the output contains "([^"]*)"$`, tc.theOutputContains)
 	sc.Step(`^I pick a random fixture namespace$`, tc.iPickARandomFixtureNamespace)
 }

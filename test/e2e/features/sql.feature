@@ -11,3 +11,11 @@ Feature: SQL query execution
   Scenario: SHOW TABLES with no cluster exits non-zero
     When I run "kubectl-sql --kubeconfig /nonexistent SHOW TABLES"
     Then the exit code is not 0
+
+  Scenario: DESCRIBE TABLE with no cluster exits non-zero
+    When I run "kubectl-sql --kubeconfig /nonexistent DESCRIBE TABLE pods"
+    Then the exit code is not 0
+
+  Scenario: DESCRIBE TABLE with no resource name exits 1
+    When I run "kubectl-sql --kubeconfig /nonexistent DESCRIBE TABLE"
+    Then the exit code is 1

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -21,9 +22,12 @@ import (
 	"github.com/ebuildy/kubectl-sql/internal/executor"
 	k8sclient "github.com/ebuildy/kubectl-sql/internal/k8s"
 	"github.com/ebuildy/kubectl-sql/internal/output"
+	internalschema "github.com/ebuildy/kubectl-sql/internal/schema"
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8sschema "k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 var rootCmd = &cobra.Command{
@@ -83,12 +87,27 @@ func runQuery(cmd *cobra.Command, query string) error {
 		return runShowTables(discoClient)
 	}
 
-	dynClient, mapper, _, err := k8sclient.NewDynamicClient(kubeconfig, kubeContext)
+	dynClient, mapper, discoClient, err := k8sclient.NewDynamicClient(kubeconfig, kubeContext)
 	if err != nil {
 		return fmt.Errorf("kubectl-sql: connect to cluster: %w", err)
 	}
 
-	db := executor.NewKubernetesDatabase(dynClient, mapper, namespace, pageSize)
+	inferrer := internalschema.NewCompositeInferrer(
+		internalschema.NewOpenAPIInferrer(discoClient),
+		internalschema.NewSampleInferrer(dynClient, namespace),
+	)
+
+	if tok := strings.Fields(strings.ToLower(strings.TrimSpace(query))); len(tok) >= 2 && tok[0] == "describe" && tok[1] == "table" {
+		parts := strings.Fields(strings.TrimSpace(query))
+		if len(parts) < 3 {
+			fmt.Fprintln(os.Stderr, "usage: DESCRIBE TABLE <resource>")
+			return fmt.Errorf("kubectl-sql: missing resource name")
+		}
+		resource := strings.ToLower(parts[2])
+		return runDescribeTable(ctx, mapper, inferrer, resource)
+	}
+
+	db := executor.NewKubernetesDatabase(dynClient, mapper, namespace, pageSize, inferrer)
 
 	env := physical.Environment{
 		Aggregates: aggregates.Aggregates,
@@ -216,6 +235,30 @@ func runQuery(cmd *cobra.Command, query string) error {
 	)
 }
 
+func runDescribeTable(ctx context.Context, mapper meta.RESTMapper, inferrer internalschema.SchemaInferrer, resource string) error {
+	gvr, err := mapper.ResourceFor(k8sschema.GroupVersionResource{Resource: resource})
+	if err != nil {
+		return fmt.Errorf("kubectl-sql: unknown resource %q: %w", resource, err)
+	}
+
+	fields, _ := inferrer.InferFields(ctx, gvr)
+	if len(fields) == 0 {
+		fields = []internalschema.Field{
+			{Name: "name", Type: internalschema.FieldTypeString},
+			{Name: "namespace", Type: internalschema.FieldTypeString},
+		}
+	}
+
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"COLUMN", "TYPE"})
+	table.SetAutoFormatHeaders(false)
+	for _, f := range fields {
+		table.Append([]string{f.Name, string(f.Type)})
+	}
+	table.Render()
+	return nil
+}
+
 func runShowTables(discoClient interface {
 	ServerPreferredResources() ([]*metav1.APIResourceList, error)
 }) error {
@@ -255,14 +298,18 @@ func runShowTables(discoClient interface {
 	return nil
 }
 
-// rewriteQuery prefixes bare table names in FROM/JOIN clauses with "k8s."
-// so octosql routes them to the KubernetesDatabase.
-// e.g. "SELECT * FROM pods" → "SELECT * FROM k8s.pods"
+// rewriteQuery performs two rewrites on the raw SQL string before parsing:
+//  1. Replaces multi-part dotted field references (e.g. metadata.labels.app)
+//     with underscore equivalents (metadata_labels_app) so octosql's SQL parser
+//     does not misinterpret them as table.column qualifiers.
+//  2. Prefixes bare table names in FROM/JOIN clauses with "k8s." so octosql
+//     routes them to the KubernetesDatabase.
 func rewriteQuery(query string) string {
-	// Use sqlparser to walk the AST and prefix all table names.
+	query = rewriteDottedFields(query)
+
 	stmt, err := sqlparser.Parse(query)
 	if err != nil {
-		return query // let the caller handle parse errors
+		return query
 	}
 	sqlparser.Walk(func(node sqlparser.SQLNode) (bool, error) { //nolint:errcheck
 		switch n := node.(type) {
@@ -277,6 +324,33 @@ func rewriteQuery(query string) string {
 		return true, nil
 	}, stmt)
 	return sqlparser.String(stmt)
+}
+
+// dottedWildcardRe matches dotted paths ending in .* (e.g. metadata.labels.*).
+var dottedWildcardRe = regexp.MustCompile(`\b([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)+)\.\*`)
+
+// dottedFieldRe matches dotted identifiers with one or more dots.
+var dottedFieldRe = regexp.MustCompile(`\b([a-zA-Z_][a-zA-Z0-9_]*)(\.[a-zA-Z_][a-zA-Z0-9_]*)+\b`)
+
+// rewriteDottedFields rewrites dot-notation field paths to octosql's -> struct access operator:
+//   - metadata.labels.app   → metadata->labels->app
+//   - metadata.labels       → metadata->labels
+//   - metadata.labels.*     → metadata->labels   (wildcard → parent struct)
+//
+// k8s.pods style table qualifiers are left untouched.
+func rewriteDottedFields(query string) string {
+	// First pass: strip wildcard suffix (metadata.labels.* → metadata.labels)
+	query = dottedWildcardRe.ReplaceAllStringFunc(query, func(match string) string {
+		return match[:len(match)-2] // strip .*
+	})
+	// Second pass: convert remaining dotted paths to -> chains, skip k8s.* table qualifiers
+	query = dottedFieldRe.ReplaceAllStringFunc(query, func(match string) string {
+		if strings.HasPrefix(match, "k8s.") {
+			return match
+		}
+		return strings.ReplaceAll(match, ".", "->")
+	})
+	return query
 }
 
 func typecheckNode(ctx context.Context, node logical.Node, env physical.Environment, logicalEnv logical.Environment) (_ physical.Node, _ map[string]string, outErr error) {

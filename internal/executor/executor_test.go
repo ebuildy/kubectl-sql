@@ -52,7 +52,7 @@ func newFakeMapper() meta.RESTMapper {
 }
 
 func TestGetTable_PluralResolvesGVR(t *testing.T) {
-	db := NewKubernetesDatabase(nil, newFakeMapper(), "", 500)
+	db := NewKubernetesDatabase(nil, newFakeMapper(), "", 500, nil)
 	impl, sch, err := db.GetTable(context.Background(), "pods", nil)
 	require.NoError(t, err)
 	assert.NotNil(t, impl)
@@ -60,14 +60,14 @@ func TestGetTable_PluralResolvesGVR(t *testing.T) {
 }
 
 func TestGetTable_SingularResolvesGVR(t *testing.T) {
-	db := NewKubernetesDatabase(nil, newFakeMapper(), "", 500)
+	db := NewKubernetesDatabase(nil, newFakeMapper(), "", 500, nil)
 	impl, _, err := db.GetTable(context.Background(), "pod", nil)
 	require.NoError(t, err)
 	assert.NotNil(t, impl)
 }
 
 func TestGetTable_UnknownReturnsError(t *testing.T) {
-	db := NewKubernetesDatabase(nil, newFakeMapper(), "", 500)
+	db := NewKubernetesDatabase(nil, newFakeMapper(), "", 500, nil)
 	_, _, err := db.GetTable(context.Background(), "doesnotexist", nil)
 	require.Error(t, err)
 }

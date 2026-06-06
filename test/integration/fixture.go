@@ -103,7 +103,11 @@ func createPod(ctx context.Context, dynClient dynamic.Interface, ns string) erro
 		Object: map[string]interface{}{
 			"apiVersion": "v1",
 			"kind":       "Pod",
-			"metadata":   map[string]interface{}{"name": name, "namespace": ns},
+			"metadata": map[string]interface{}{
+				"name":      name,
+				"namespace": ns,
+				"labels":    map[string]interface{}{"app": "nginx", "env": "test"},
+			},
 			"spec": map[string]interface{}{
 				"containers": []interface{}{
 					map[string]interface{}{
@@ -119,22 +123,12 @@ func createPod(ctx context.Context, dynClient dynamic.Interface, ns string) erro
 		return fmt.Errorf("create pod %s/%s: %w", ns, name, err)
 	}
 
-	// PATCH status subresource to set phase=Running (envtest has no scheduler)
-	statusPatch := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "v1",
-			"kind":       "Pod",
-			"metadata": map[string]interface{}{
-				"name":            created.GetName(),
-				"namespace":       ns,
-				"resourceVersion": created.GetResourceVersion(),
-			},
-			"status": map[string]interface{}{
-				"phase": string(corev1.PodRunning),
-			},
-		},
+	// PATCH status subresource to set phase=Running (envtest has no scheduler).
+	// Re-use the created object and only set status to preserve labels.
+	created.Object["status"] = map[string]interface{}{
+		"phase": string(corev1.PodRunning),
 	}
-	_, err = dynClient.Resource(podsGVR).Namespace(ns).UpdateStatus(ctx, statusPatch, metav1.UpdateOptions{})
+	_, err = dynClient.Resource(podsGVR).Namespace(ns).UpdateStatus(ctx, created, metav1.UpdateOptions{})
 	return err
 }
 
