@@ -9,15 +9,19 @@ Defines the end-to-end SQL query execution contract: how queries are accepted fr
 ## Requirements
 
 ### Requirement: SQL query is accepted as a positional argument
-The root command SHALL accept a single positional SQL string as its first argument and execute it against the Kubernetes cluster. If the query is `SHOW TABLES` (case-insensitive), it SHALL be handled before the octosql pipeline and return a table of all queryable Kubernetes resource types. Results SHALL be rendered by `internal/output.Render` so the process always exits cleanly regardless of terminal environment.
+The root command SHALL accept a single positional SQL string as its first argument and execute it against the Kubernetes cluster. If the query is `SHOW TABLES` (case-insensitive), it SHALL be handled before the octosql pipeline and return a table of all queryable Kubernetes resource types. Results SHALL be rendered by `internal/output.Render` so the process always exits cleanly regardless of terminal environment. When no positional argument is provided, the command SHALL open the REPL: interactively on a TTY, or in line-by-line batch mode when stdin is piped.
 
 #### Scenario: Query executes and prints a table
 - **WHEN** the user runs `kubectl-sql "SELECT name, namespace FROM pods"`
 - **THEN** the command connects to the cluster, fetches pods, and prints a table with columns `name` and `namespace` to stdout, then exits 0
 
-#### Scenario: Missing argument shows help
-- **WHEN** the user runs `kubectl-sql` with no arguments
-- **THEN** the command prints usage help and exits 0
+#### Scenario: Missing argument opens REPL on TTY
+- **WHEN** the user runs `kubectl-sql` with no arguments and stdin is a TTY
+- **THEN** the command opens the interactive REPL prompt instead of showing help
+
+#### Scenario: Missing argument with piped stdin runs batch mode
+- **WHEN** the user runs `kubectl-sql` with no arguments and stdin is piped (not a TTY)
+- **THEN** the command reads queries line-by-line from stdin, executes each, and exits 0 at EOF
 
 #### Scenario: Invalid SQL prints an error
 - **WHEN** the user runs `kubectl-sql "NOT VALID SQL"`

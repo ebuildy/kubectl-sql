@@ -122,6 +122,39 @@ func (tc *testContext) iRunKubectlSqlWithWatchFlag(query string) error {
 	return tc.runBinary("--watch", "--timeout", "3s", "--output", "json", query)
 }
 
+// iPipeQueryToKubectlSql runs the binary with no positional query, feeding the
+// query on stdin. With non-TTY stdin the REPL enters batch mode.
+func (tc *testContext) iPipeQueryToKubectlSql(query string) error {
+	const deadline = 5 * time.Second
+	binary := "../../bin/kubectl-sql"
+	args := []string{"--kubeconfig", envKubeconfig, "--timeout", "10s", "--output", "json"}
+	ctx, cancel := context.WithTimeout(context.Background(), deadline)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, binary, args...)
+	cmd.Env = append(os.Environ(), "TERM=dumb")
+	cmd.Stdin = strings.NewReader(query + "\n")
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+
+	err := cmd.Run()
+	tc.stdout = outBuf.String()
+	tc.stderr = errBuf.String()
+	if ctx.Err() != nil {
+		return fmt.Errorf("binary timed out after %s\nstdout: %s\nstderr: %s", deadline, tc.stdout, tc.stderr)
+	}
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			tc.exitCode = exitErr.ExitCode()
+			return nil
+		}
+		return err
+	}
+	tc.exitCode = 0
+	return nil
+}
+
 func (tc *testContext) theOutputContains(s string) error {
 	if strings.Contains(tc.stdout, s) || strings.Contains(tc.stderr, s) {
 		return nil
@@ -215,5 +248,6 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the output contains "([^"]*)"$`, tc.theOutputContains)
 	sc.Step(`^the output produces JQ "([^"]*)"$`, tc.theOutputProducesJQ)
 	sc.Step(`^I run kubectl-sql --watch "([^"]*)" against the envtest cluster$`, tc.iRunKubectlSqlWithWatchFlag)
+	sc.Step(`^I pipe "([^"]*)" to kubectl-sql against the envtest cluster$`, tc.iPipeQueryToKubectlSql)
 	sc.Step(`^I pick a random fixture namespace$`, tc.iPickARandomFixtureNamespace)
 }

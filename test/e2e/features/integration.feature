@@ -196,3 +196,9 @@ Feature: SQL queries against envtest cluster
     When I run kubectl-sql --watch "SELECT name FROM pods ORDER BY name LIMIT 5" against the envtest cluster
     Then the exit code is 0
     And the output produces JQ "length <= 5"
+
+  # REPL batch mode (piped stdin, no positional query)
+  Scenario: Piped query runs in batch mode and exits 0
+    When I pipe "SELECT name FROM pods LIMIT 1" to kubectl-sql against the envtest cluster
+    Then the exit code is 0
+    And the output produces JQ "length <= 1 and .[0] | has(\"pods.name\")"

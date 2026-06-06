@@ -199,6 +199,8 @@ make test-integration       # uses KUBECONFIG from environment
 make coverage               # opens HTML coverage report
 ```
 
+Always call `make lint build` after edit go code.
+
 ### Testing rules
 
 - Every new parser feature: unit tests in `test/unit/parser/`

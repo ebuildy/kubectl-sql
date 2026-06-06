@@ -25,6 +25,7 @@ import (
 	"github.com/ebuildy/kubectl-sql/internal/executor"
 	k8sclient "github.com/ebuildy/kubectl-sql/internal/k8s"
 	"github.com/ebuildy/kubectl-sql/internal/output"
+	"github.com/ebuildy/kubectl-sql/internal/repl"
 	internalschema "github.com/ebuildy/kubectl-sql/internal/schema"
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
@@ -45,7 +46,12 @@ Example:
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
-			return cmd.Help()
+			replFlag, _ := cmd.Flags().GetBool("repl")
+			interactive := replFlag || repl.StdinIsTTY()
+			// No positional query: open the REPL. On a TTY (or with --repl)
+			// this is the interactive prompt; with piped stdin it reads
+			// queries line-by-line in batch mode.
+			return runREPL(cmd, interactive)
 		}
 		return runQuery(cmd, args[0])
 	},
@@ -72,6 +78,100 @@ func init() {
 	rootCmd.PersistentFlags().Bool("explain", false, "Print execution plan without running query")
 	rootCmd.PersistentFlags().Bool("dry-run", false, "Validate SQL without hitting the API")
 	rootCmd.PersistentFlags().BoolP("watch", "w", false, "Stream live resource changes via the Kubernetes WATCH API")
+	rootCmd.PersistentFlags().BoolP("repl", "i", false, "Open an interactive SQL REPL (default when no query is given)")
+}
+
+// runREPL wires the REPL package to the cobra command, forwarding all flags via
+// a closure over runQueryWithWriter. interactive selects the prompt-driven loop;
+// when false the REPL reads queries from stdin in batch mode.
+func runREPL(cmd *cobra.Command, interactive bool) error {
+	kubeconfig, _ := cmd.Flags().GetString("kubeconfig")
+	kubeContext, _ := cmd.Flags().GetString("context")
+	namespace, _ := cmd.Flags().GetString("namespace")
+
+	runQueryFn := func(ctx context.Context, query string, w io.Writer) error {
+		timeout, _ := cmd.Flags().GetDuration("timeout")
+		queryCtx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		return runQueryWithWriter(cmd, queryCtx, query, kubeconfig, kubeContext, namespace, w)
+	}
+
+	replCfg := repl.Config{
+		RunQuery: runQueryFn,
+		Stdin:    os.Stdin,
+		IsTTY:    interactive,
+	}
+
+	// Tab completion only matters for the interactive prompt. Build the source
+	// best-effort: if the cluster is unreachable, completion is simply disabled
+	// rather than aborting the REPL.
+	if interactive {
+		if src := newCompletionSource(cmd.Context(), kubeconfig, kubeContext, namespace); src != nil {
+			replCfg.Completion = src
+		}
+	}
+
+	return repl.Run(cmd.Context(), replCfg, os.Stdout)
+}
+
+// cliCompletionSource implements repl.CompletionSource over discovery (for
+// table names) and the schema inferrer (for column names).
+type cliCompletionSource struct {
+	ctx      context.Context
+	mapper   meta.RESTMapper
+	inferrer internalschema.SchemaInferrer
+	disco    interface {
+		ServerPreferredResources() ([]*metav1.APIResourceList, error)
+	}
+}
+
+// newCompletionSource builds a completion source, returning nil if the cluster
+// connection fails (completion is then disabled).
+func newCompletionSource(ctx context.Context, kubeconfig, kubeContext, namespace string) repl.CompletionSource {
+	dynClient, mapper, discoClient, err := k8sclient.NewDynamicClient(kubeconfig, kubeContext)
+	if err != nil {
+		return nil
+	}
+	inferrer := internalschema.NewCompositeInferrer(
+		internalschema.NewOpenAPIInferrer(discoClient),
+		internalschema.NewSampleInferrer(dynClient, namespace),
+	)
+	return &cliCompletionSource{ctx: ctx, mapper: mapper, inferrer: inferrer, disco: discoClient}
+}
+
+// Tables returns queryable resource names, using the same filtering as SHOW TABLES.
+func (s *cliCompletionSource) Tables() []string {
+	lists, err := s.disco.ServerPreferredResources()
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, list := range lists {
+		for _, r := range list.APIResources {
+			if strings.Contains(r.Name, "/") {
+				continue // skip subresources like pods/log
+			}
+			names = append(names, r.Name)
+		}
+	}
+	return names
+}
+
+// Columns returns the column names for a table, or nil if it cannot be resolved.
+func (s *cliCompletionSource) Columns(table string) []string {
+	gvr, err := s.mapper.ResourceFor(k8sschema.GroupVersionResource{Resource: strings.ToLower(table)})
+	if err != nil {
+		return nil
+	}
+	fields, err := s.inferrer.InferFields(s.ctx, gvr)
+	if err != nil {
+		return nil
+	}
+	cols := make([]string, 0, len(fields))
+	for _, f := range fields {
+		cols = append(cols, f.Name)
+	}
+	return cols
 }
 
 func runQuery(cmd *cobra.Command, query string) error {

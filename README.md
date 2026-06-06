@@ -51,11 +51,33 @@ kubectl sql "SELECT name FROM pods"
 kubectl-sql [query] [flags]
 ```
 
+Pass a query directly, or run with no query to drop into the interactive REPL:
+
+```
+$ kubectl-sql
+sql> SELECT name, namespace FROM pods WHERE status.phase != 'Running'
+... results ...
+sql> \q
+```
+
+At the `sql> ` prompt, type a query and press Enter to run it. Use the up/down
+arrows to recall previous queries, and press **Tab** to autocomplete SQL
+keywords, table names (after `FROM`), and column names of the table in your
+`FROM` clause. `\help` (or `?`) lists commands; `\q`, `quit`, `exit`, or `Ctrl-C`
+leaves the REPL. Queries can be piped in too — they run in batch mode, one per
+line:
+
+```
+echo "SELECT name FROM pods LIMIT 5" | kubectl-sql
+```
+
 ### Flags
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--output` | `-o` | `table` | Output format: `table`, `json`, `csv` |
+| `--repl` | `-i` | `false` | Open the interactive SQL REPL (default when no query is given) |
+| `--watch` | `-w` | `false` | Re-run the query every 5s, refreshing the table |
 | `--namespace` | `-n` | all namespaces | Restrict query to a single namespace |
 | `--context` | | current context | kubeconfig context to use |
 | `--kubeconfig` | | `~/.kube/config` | Path to kubeconfig |
