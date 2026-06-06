@@ -66,5 +66,5 @@ jobs:
       - run: chmod +x bin/kubectl-sql
       - run: go test -tags e2e ./test/e2e/... -v
       - run: go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
-      - run: export KUBEBUILDER_ASSETS="$(setup-envtest use -p path --installed-only)" 
+      - run: export KUBEBUILDER_ASSETS="$(setup-envtest use)" 
       - run: go test -tags integration ./test/integration/... -v -count=1
