@@ -2,6 +2,10 @@
 
 [![Go version](https://img.shields.io/badge/go-1.26+-00ADD8.svg)](https://golang.org)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Go Report Card](https://goreportcard.com/badge/github.com/ebuildy/kubectl-sql)](https://goreportcard.com/report/github.com/ebuildy/kubectl-sql)
+[![CI](https://github.com/ebuildy/kubectl-sql/actions/workflows/ci.yml/badge.svg)](https://github.com/ebuildy/kubectl-sql/actions)
+[![Release](https://img.shields.io/github/v/release/ebuildy/kubectl-sql?color=6366F1)](https://github.com/ebuildy/kubectl-sql/releases)
+[![Go Reference](https://pkg.go.dev/badge/github.com/ebuildy/kubectl-sql.svg)](https://pkg.go.dev/github.com/ebuildy/kubectl-sql)
 
 > Query any Kubernetes resource using SQL — directly from your terminal.
 
@@ -208,3 +212,18 @@ make dev-deps
 
 > [!NOTE]
 > Integration and e2e tests use [controller-runtime envtest](https://pkg.go.dev/sigs.k8s.io/controller-runtime/pkg/envtest) — no real cluster needed. Run `make dev-deps` first to download the required binaries.
+
+## Documentation
+
+| Document | Description |
+|---|---|
+| [ADR-001 — Schema inference strategy](docs/adr-001-schema-inference-strategy.md) | Why OpenAPI is the primary schema source with sample-object fallback |
+| [ADR-002 — SQL engine choice](docs/adr-002-octosql-sql-engine.md) | Why octosql, and why DuckDB was considered but ruled out |
+| [ADR-003 — Go over Rust](docs/adr-003-go-versus-rust.md) | Language choice rationale: velocity, Kubernetes ecosystem, static binary |
+| [ADR-004 — AI-assisted development](docs/adr-004-ai-assisted-development.md) | How Claude Code + OpenSpec were used to build this project |
+| [SQL grammar (EBNF)](docs/grammar.ebnf) | Formal grammar reference |
+| [OpenSpec behavioral specs](openspec/specs/) | Long-lived specs for all features |
+
+---
+
+⚡ Made blazing fast with love at Sanary-sur-Mer 🌊
