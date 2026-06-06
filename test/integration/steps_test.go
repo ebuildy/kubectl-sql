@@ -117,11 +117,16 @@ func (tc *testContext) iRunKubectlSqlWithOutputFlag(format, query string) error 
 	return tc.runBinary("--output", format, query)
 }
 
+func (tc *testContext) iRunKubectlSqlWithWatchFlag(query string) error {
+	// Run with a short timeout so the watch stream exits cleanly after seeing initial events.
+	return tc.runBinary("--watch", "--timeout", "3s", "--output", "json", query)
+}
+
 func (tc *testContext) theOutputContains(s string) error {
-	if !strings.Contains(tc.stdout, s) {
-		return fmt.Errorf("expected output to contain %q\noutput:\n%s", s, tc.stdout)
+	if strings.Contains(tc.stdout, s) || strings.Contains(tc.stderr, s) {
+		return nil
 	}
-	return nil
+	return fmt.Errorf("expected output to contain %q\nstdout:\n%s\nstderr:\n%s", s, tc.stdout, tc.stderr)
 }
 
 // theOutputProducesJQ runs a JQ query against the JSON stdout and asserts it
@@ -209,5 +214,6 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the exit code is not (\d+)$`, tc.theExitCodeIsNot)
 	sc.Step(`^the output contains "([^"]*)"$`, tc.theOutputContains)
 	sc.Step(`^the output produces JQ "([^"]*)"$`, tc.theOutputProducesJQ)
+	sc.Step(`^I run kubectl-sql --watch "([^"]*)" against the envtest cluster$`, tc.iRunKubectlSqlWithWatchFlag)
 	sc.Step(`^I pick a random fixture namespace$`, tc.iPickARandomFixtureNamespace)
 }

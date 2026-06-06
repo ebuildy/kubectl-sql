@@ -66,3 +66,20 @@ The `--context`, `--namespace`, `--kubeconfig`, `--page-size`, and `--timeout` f
 #### Scenario: Namespace flag restricts results
 - **WHEN** the user runs `kubectl-sql -n kube-system "SELECT name FROM pods"`
 - **THEN** only pods in the `kube-system` namespace appear in the output
+
+---
+
+### Requirement: --watch flag re-executes the query on a polling interval
+When `--watch` / `-w` is set, the command SHALL run the full query in a polling loop, re-executing every 5 seconds and reprinting the result table until interrupted (SIGINT or `--timeout`).
+
+#### Scenario: --watch re-executes the query on every tick
+- **WHEN** the user runs `kubectl-sql --watch "SELECT name FROM pods"`
+- **THEN** the full query pipeline runs, the table is printed, and after 5 seconds the table is cleared and reprinted with fresh data
+
+#### Scenario: --watch respects all SQL clauses
+- **WHEN** the user runs `kubectl-sql --watch "SELECT name FROM pods ORDER BY name LIMIT 10"`
+- **THEN** the query runs normally with ORDER BY and LIMIT applied on every tick
+
+#### Scenario: --watch exits cleanly on SIGINT
+- **WHEN** the user presses Ctrl-C while watching
+- **THEN** the command exits 0

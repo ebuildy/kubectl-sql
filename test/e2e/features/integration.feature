@@ -185,3 +185,14 @@ Feature: SQL queries against envtest cluster
     When I run kubectl-sql --namespace "main" with query "SELECT COUNT(*) FROM pods" against the envtest cluster
     Then the exit code is 0
     And the output produces JQ ".[0] | to_entries | .[0].value == 2"
+
+  # Watch mode
+  Scenario: --watch re-executes query and shows table output
+    When I run kubectl-sql --watch "SELECT name, namespace FROM pods" against the envtest cluster
+    Then the exit code is 0
+    And the output produces JQ "length >= 30"
+
+  Scenario: --watch works with ORDER BY and LIMIT
+    When I run kubectl-sql --watch "SELECT name FROM pods ORDER BY name LIMIT 5" against the envtest cluster
+    Then the exit code is 0
+    And the output produces JQ "length <= 5"

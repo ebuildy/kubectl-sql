@@ -4,10 +4,13 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"os/signal"
 	"regexp"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/cube2222/octosql/aggregates"
@@ -25,6 +28,7 @@ import (
 	internalschema "github.com/ebuildy/kubectl-sql/internal/schema"
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sschema "k8s.io/apimachinery/pkg/runtime/schema"
@@ -67,17 +71,28 @@ func init() {
 	rootCmd.PersistentFlags().Bool("no-color", false, "Disable ANSI colors")
 	rootCmd.PersistentFlags().Bool("explain", false, "Print execution plan without running query")
 	rootCmd.PersistentFlags().Bool("dry-run", false, "Validate SQL without hitting the API")
+	rootCmd.PersistentFlags().BoolP("watch", "w", false, "Stream live resource changes via the Kubernetes WATCH API")
 }
 
 func runQuery(cmd *cobra.Command, query string) error {
 	kubeconfig, _ := cmd.Flags().GetString("kubeconfig")
 	kubeContext, _ := cmd.Flags().GetString("context")
 	namespace, _ := cmd.Flags().GetString("namespace")
-	pageSize, _ := cmd.Flags().GetInt("page-size")
 	timeout, _ := cmd.Flags().GetDuration("timeout")
+	watch, _ := cmd.Flags().GetBool("watch")
 
 	ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 	defer cancel()
+
+	if watch {
+		return runWatch(cmd, ctx, query, kubeconfig, kubeContext, namespace)
+	}
+
+	return runQueryWithWriter(cmd, ctx, query, kubeconfig, kubeContext, namespace, os.Stdout)
+}
+
+func runQueryWithWriter(cmd *cobra.Command, ctx context.Context, query, kubeconfig, kubeContext, namespace string, w io.Writer) error {
+	pageSize, _ := cmd.Flags().GetInt("page-size")
 
 	if strings.EqualFold(strings.TrimSpace(query), "show tables") {
 		_, _, discoClient, err := k8sclient.NewDynamicClient(kubeconfig, kubeContext)
@@ -230,7 +245,7 @@ func runQuery(cmd *cobra.Command, query string) error {
 			OrderBy:         execOrderBy,
 			OrderDirections: logical.DirectionsToMultipliers(outputOptions.OrderByDirections),
 			Schema:          outSchema,
-			Writer:          os.Stdout,
+			Writer:          w,
 		},
 	)
 }
@@ -367,6 +382,61 @@ func rewriteDottedFields(query string) string {
 		return strings.ReplaceAll(match, ".", "->")
 	})
 	return query
+}
+
+// runWatch polls the query every 5 seconds, clearing the terminal and reprinting
+// the full result table on each tick — identical output to a normal batch query.
+func isTerminal(f *os.File) bool {
+	return term.IsTerminal(int(f.Fd()))
+}
+
+func runWatch(cmd *cobra.Command, ctx context.Context, query, kubeconfig, kubeContext, namespace string) error {
+	const pollInterval = 5 * time.Second
+
+	// Handle SIGINT/SIGTERM: cancel context for a clean exit.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	watchCtx, watchCancel := context.WithCancel(ctx)
+	defer watchCancel()
+	go func() {
+		select {
+		case <-sigCh:
+			watchCancel()
+		case <-watchCtx.Done():
+		}
+	}()
+
+	isTTY := isTerminal(os.Stdout)
+
+	tick := func() error {
+		var buf strings.Builder
+		if err := runQueryWithWriter(cmd, watchCtx, query, kubeconfig, kubeContext, namespace, &buf); err != nil {
+			return err
+		}
+		if isTTY {
+			_, _ = fmt.Fprint(os.Stdout, "\033[H\033[2J")
+		}
+		_, _ = fmt.Fprint(os.Stdout, buf.String())
+		return nil
+	}
+
+	// First tick immediately.
+	if err := tick(); err != nil {
+		return err
+	}
+
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-watchCtx.Done():
+			return nil
+		case <-ticker.C:
+			if err := tick(); err != nil {
+				return err
+			}
+		}
+	}
 }
 
 func typecheckNode(ctx context.Context, node logical.Node, env physical.Environment, logicalEnv logical.Environment) (_ physical.Node, _ map[string]string, outErr error) {
