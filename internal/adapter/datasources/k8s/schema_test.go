@@ -15,7 +15,7 @@ import (
 func TestSchema_Default(t *testing.T) {
 	c := newDefaultSchemaProvider()
 
-	fields, err := c.InferFields(context.Background(), k8sschema.GroupVersionResource{Resource: "pods"})
+	fields, err := c.Provide(context.Background(), k8sschema.GroupVersionResource{Resource: "pods"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,8 +54,26 @@ func TestSchema_MergeSchemas(t *testing.T) {
 
 	assert.JSONEq(t, expected, string(resultAsJSON), "unexpected merged schema")
 
+	// Object-in-dest vs scalar-in-source is enrichment, not conflict: the object form
+	// is kept so nested access keeps working.
 	err = mergeSchemas(root, []schema.Field{
 		{Name: "metadata", Type: schema.FieldTypeString},
 	})
-	assert.Error(t, err, "expected error merging schemas")
+	assert.Nil(t, err, "object field should not be downgraded by a scalar source")
+	metaIdx := -1
+	for i, f := range root.SubFields {
+		if f.Name == "metadata" {
+			metaIdx = i
+		}
+	}
+	assert.Equal(t, schema.FieldTypeObject, root.SubFields[metaIdx].Type, "metadata should stay an object")
+
+	// A genuine leaf-vs-leaf type conflict is still reported as an error.
+	conflict := &schema.Field{Name: "root", Type: schema.FieldTypeObject, SubFields: []schema.Field{
+		{Name: "count", Type: schema.FieldTypeInt},
+	}}
+	err = mergeSchemas(conflict, []schema.Field{
+		{Name: "count", Type: schema.FieldTypeString},
+	})
+	assert.Error(t, err, "expected error on leaf-vs-leaf type conflict")
 }

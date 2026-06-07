@@ -22,7 +22,7 @@ func newOpenAPIInferrer(disco discovery.DiscoveryInterface) *openAPIInferrer {
 	return &openAPIInferrer{discovery: disco}
 }
 
-func (o *openAPIInferrer) InferFields(_ context.Context, gvr k8sschema.GroupVersionResource) ([]schema.Field, error) {
+func (o *openAPIInferrer) Provide(_ context.Context, gvr k8sschema.GroupVersionResource) ([]schema.Field, error) {
 	if o.discovery == nil {
 		return nil, nil
 	}
@@ -143,7 +143,17 @@ func openAPISchemaToField(name string, s *spec.Schema) schema.Field {
 }
 
 func openAPITypeToFieldType(s *spec.Schema) schema.FieldType {
-	if s == nil || len(s.Type) == 0 {
+	if s == nil {
+		return schema.FieldTypeString
+	}
+	if len(s.Type) == 0 {
+		// Structural schemas (e.g. metadata -> $ref ObjectMeta) carry no explicit
+		// "type" but are objects. Detect them via $ref, nested properties, a map
+		// value (additionalProperties), or composition keywords.
+		if s.Ref.String() != "" || len(s.Properties) > 0 || s.AdditionalProperties != nil ||
+			len(s.AllOf) > 0 || len(s.OneOf) > 0 || len(s.AnyOf) > 0 {
+			return schema.FieldTypeObject
+		}
 		return schema.FieldTypeString
 	}
 	switch s.Type[0] {
@@ -156,7 +166,7 @@ func openAPITypeToFieldType(s *spec.Schema) schema.FieldType {
 	case "object":
 		return schema.FieldTypeObject
 	case "array":
-		return schema.FieldTypeString
+		return schema.FieldTypeList
 	default:
 		return schema.FieldTypeString
 	}

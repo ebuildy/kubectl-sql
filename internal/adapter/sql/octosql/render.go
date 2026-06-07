@@ -204,6 +204,21 @@ func valueToNative(v octosql.Value) interface{} {
 		return v.Str
 	case octosql.TypeIDTime:
 		return v.Time.Format(time.RFC3339)
+	case octosql.TypeIDList:
+		out := make([]interface{}, len(v.List))
+		for i, e := range v.List {
+			// List elements are JSON-encoded strings; decode so nested objects
+			// render as real JSON rather than escaped strings.
+			if e.TypeID == octosql.TypeIDString {
+				var decoded interface{}
+				if json.Unmarshal([]byte(e.Str), &decoded) == nil {
+					out[i] = decoded
+					continue
+				}
+			}
+			out[i] = valueToNative(e)
+		}
+		return out
 	default:
 		return v.String()
 	}

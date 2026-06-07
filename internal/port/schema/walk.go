@@ -178,8 +178,10 @@ func typeOf(v interface{}) FieldType {
 			return FieldTypeInt
 		}
 		return FieldTypeFloat
-	case map[string]interface{}, []interface{}:
+	case map[string]interface{}:
 		return FieldTypeObject
+	case []interface{}:
+		return FieldTypeList
 	default:
 		return FieldTypeString
 	}

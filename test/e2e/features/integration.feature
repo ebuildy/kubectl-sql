@@ -138,6 +138,14 @@ Feature: SQL queries against envtest cluster
     Then the exit code is 0
     And the output produces JQ ".[0] | to_entries | .[0].value == 5"
 
+  Scenario: length() counts labels (struct) and volumes (list)
+    When I run kubectl-sql --namespace "nginx-test" with query "SELECT metadata->name AS name, length(metadata->labels) AS nlabels, length(spec->volumes) AS nvolumes, spec->volumes AS volumes FROM po WHERE name = 'nginx'" against the envtest cluster
+    Then the exit code is 0
+    And the output produces JQ ".[0].name == \"nginx\""
+    And the output produces JQ ".[0].nlabels == 1"
+    And the output produces JQ ".[0].nvolumes == 1"
+    And the output produces JQ ".[0].volumes | type == \"array\" and length == 1"
+
   Scenario: DESCRIBE TABLE shows metadata column
     When I run kubectl-sql "DESCRIBE TABLE pods" against the envtest cluster
     Then the exit code is 0

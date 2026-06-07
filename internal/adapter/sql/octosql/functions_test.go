@@ -7,21 +7,28 @@ import (
 )
 
 // callLength invokes the length descriptor matching the given value's TypeID and
-// returns the resulting int. It fails the test if no descriptor matches.
+// returns the resulting int. It fails the test if no descriptor matches. It uses
+// the same discriminating TypeFn that octosql uses to pick a descriptor, so a
+// descriptor accidentally matching the wrong type would be caught here too.
 func callLength(t *testing.T, v octosql.Value) int64 {
 	t.Helper()
+	argType := octosql.Type{TypeID: v.TypeID}
 	details := lengthFunction()
 	for _, d := range details.Descriptors {
-		if len(d.ArgumentTypes) == 1 && d.ArgumentTypes[0].TypeID == v.TypeID {
-			out, err := d.Function([]octosql.Value{v})
-			if err != nil {
-				t.Fatalf("length(%v) returned error: %v", v.TypeID, err)
-			}
-			if out.TypeID != octosql.TypeIDInt {
-				t.Fatalf("length should return Int, got %v", out.TypeID)
-			}
-			return out.Int
+		if d.TypeFn == nil {
+			continue
 		}
+		if _, ok := d.TypeFn([]octosql.Type{argType}); !ok {
+			continue
+		}
+		out, err := d.Function([]octosql.Value{v})
+		if err != nil {
+			t.Fatalf("length(%v) returned error: %v", v.TypeID, err)
+		}
+		if out.TypeID != octosql.TypeIDInt {
+			t.Fatalf("length should return Int, got %v", out.TypeID)
+		}
+		return out.Int
 	}
 	t.Fatalf("no length descriptor for type %v", v.TypeID)
 	return 0

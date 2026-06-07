@@ -88,7 +88,7 @@ func (d *dataSource) Resources(_ context.Context) ([]k8s.Resource, error) {
 
 // InferSchema returns the column model for a resource.
 func (d *dataSource) InferSchema(ctx context.Context, r k8s.Resource) ([]schema.Field, error) {
-	return d.schema.InferFields(ctx, gvrFor(r))
+	return d.schema.Provide(ctx, gvrFor(r))
 }
 
 // List streams a resource's objects as plain maps, one page per pageFn call.

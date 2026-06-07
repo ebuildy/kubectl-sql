@@ -15,7 +15,7 @@ func newDefaultSchemaProvider() *defaultSchemaProvider {
 	return &defaultSchemaProvider{}
 }
 
-func (c *defaultSchemaProvider) InferFields(ctx context.Context, gvr k8sschema.GroupVersionResource) ([]schema.Field, error) {
+func (c *defaultSchemaProvider) Provide(ctx context.Context, gvr k8sschema.GroupVersionResource) ([]schema.Field, error) {
 	return []schema.Field{
 		{Name: "name", Type: schema.FieldTypeString},
 		{Name: "namespace", Type: schema.FieldTypeString},

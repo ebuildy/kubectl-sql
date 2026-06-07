@@ -115,7 +115,7 @@ func TestTypeOf(t *testing.T) {
 		{float64(42), FieldTypeInt},
 		{float64(3.14), FieldTypeFloat},
 		{map[string]interface{}{}, FieldTypeObject},
-		{[]interface{}{}, FieldTypeObject},
+		{[]interface{}{}, FieldTypeList},
 	}
 	for _, tc := range cases {
 		got := typeOf(tc.input)
@@ -206,8 +206,8 @@ func TestWalkObject_Slice(t *testing.T) {
 	if !ok {
 		t.Fatal("expected items field")
 	}
-	if f.Type != FieldTypeObject {
-		t.Errorf("items: expected FieldTypeObject, got %s", f.Type)
+	if f.Type != FieldTypeList {
+		t.Errorf("items: expected FieldTypeList, got %s", f.Type)
 	}
 	if len(f.SubFields) != 0 {
 		t.Errorf("items: expected empty SubFields for slice, got %v", f.SubFields)

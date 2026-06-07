@@ -92,9 +92,17 @@ func fieldToOctoType(f internalschema.Field) octosql.Type {
 		return octosql.Int
 	case internalschema.FieldTypeFloat:
 		return octosql.Float
+	case internalschema.FieldTypeList:
+		// Lists carry JSON-string elements so length() counts elements while each
+		// element still renders as its JSON form.
+		elem := octosql.String
+		return octosql.Type{
+			TypeID: octosql.TypeIDList,
+			List:   struct{ Element *octosql.Type }{Element: &elem},
+		}
 	case internalschema.FieldTypeObject:
 		if len(f.SubFields) == 0 {
-			return octosql.String // slice or empty map — serialize as JSON
+			return octosql.String // empty map — serialize as JSON
 		}
 		structFields := make([]octosql.StructField, len(f.SubFields))
 		for i, sf := range f.SubFields {
@@ -197,10 +205,38 @@ func resolveFieldValue(raw map[string]interface{}, field internalschema.Field) o
 		resolvePath = field.Path
 	}
 
+	if field.Type == internalschema.FieldTypeList {
+		return anyToListValue(ResolveField(raw, resolvePath))
+	}
 	if field.Type == internalschema.FieldTypeObject && len(field.SubFields) > 0 {
 		return resolveStructValue(raw, resolvePath, field.SubFields)
 	}
 	return anyToOctoValue(ResolveField(raw, resolvePath))
+}
+
+// anyToListValue builds an octosql List value whose elements are the JSON-encoded
+// form of each slice element. A non-slice (or nil) value yields an empty list so
+// the runtime type stays a List, matching the schema declared in fieldToOctoType.
+func anyToListValue(v interface{}) octosql.Value {
+	slice, ok := v.([]interface{})
+	if !ok {
+		return octosql.NewList(nil)
+	}
+	elems := make([]octosql.Value, len(slice))
+	for i, e := range slice {
+		switch e.(type) {
+		case map[string]interface{}, []interface{}:
+			b, err := json.Marshal(e)
+			if err != nil {
+				elems[i] = octosql.NewNull()
+				continue
+			}
+			elems[i] = octosql.NewString(string(b))
+		default:
+			elems[i] = octosql.NewString(fmt.Sprintf("%v", e))
+		}
+	}
+	return octosql.NewList(elems)
 }
 
 // resolveStructValue builds an octosql.NewStruct value for a map field.
@@ -224,14 +260,17 @@ func resolveStructValue(raw map[string]interface{}, path string, subFields []int
 			values[i] = octosql.NewNull()
 			continue
 		}
-		if sf.Type == internalschema.FieldTypeObject && len(sf.SubFields) > 0 {
+		switch {
+		case sf.Type == internalschema.FieldTypeList:
+			values[i] = anyToListValue(v)
+		case sf.Type == internalschema.FieldTypeObject && len(sf.SubFields) > 0:
 			// Recursively build a struct for nested map subfields.
 			if nested, ok := v.(map[string]interface{}); ok {
 				values[i] = resolveMapAsStruct(nested, sf.SubFields)
 			} else {
 				values[i] = octosql.NewNull()
 			}
-		} else {
+		default:
 			values[i] = anyToOctoValue(v)
 		}
 	}
@@ -243,9 +282,12 @@ func resolveMapAsStruct(m map[string]interface{}, subFields []internalschema.Fie
 	values := make([]octosql.Value, len(subFields))
 	for i, sf := range subFields {
 		v, exists := m[sf.Name]
-		if !exists {
+		switch {
+		case !exists:
 			values[i] = octosql.NewNull()
-		} else {
+		case sf.Type == internalschema.FieldTypeList:
+			values[i] = anyToListValue(v)
+		default:
 			values[i] = anyToOctoValue(v)
 		}
 	}

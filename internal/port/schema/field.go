@@ -11,7 +11,8 @@ const (
 	FieldTypeInt    FieldType = "int"
 	FieldTypeFloat  FieldType = "float"
 	FieldTypeBool   FieldType = "bool"
-	FieldTypeObject FieldType = "object" // maps → octosql Struct; slices → JSON string
+	FieldTypeObject FieldType = "object" // maps → octosql Struct (named subfields)
+	FieldTypeList   FieldType = "list"   // slices → octosql List (JSON-string elements)
 )
 
 // Field represents a single inferred column.

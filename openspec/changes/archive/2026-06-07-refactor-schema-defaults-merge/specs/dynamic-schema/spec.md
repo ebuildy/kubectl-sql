@@ -1,12 +1,4 @@
-# Spec: Dynamic Schema Inference
-
-## Purpose
-
-Defines how `kubectl-sql` infers the schema of a Kubernetes resource at query planning time. Schema inference drives column discovery for `SELECT *`, `DESCRIBE TABLE`, and type-aware filtering.
-
----
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Schema is inferred from OpenAPI primary, sample fallback
 `GetTable` SHALL derive the schema by starting from a hardcoded **default baseline** and then layering cluster-derived fields on top. The default baseline SHALL always include the top-level fields `name`, `namespace`, `labels`, `annotations`, `metadata`, `spec`, and `status`. The inferrer SHALL then merge, in order, the fields discovered from the OpenAPI v3 document and the fields discovered from a sample object (a small LIST). Both layers enrich the baseline; the sample layer is not merely a fallback. Unknown fields for any given row SHALL resolve to NULL.
@@ -33,8 +25,6 @@ When merging a source field list onto the baseline tree:
 - **WHEN** the queried resource has no objects and no OpenAPI schema
 - **THEN** the query returns an empty result with at least the default baseline columns and exits 0
 
----
-
 ### Requirement: Object columns use octosql TypeIDStruct
 Top-level map fields (e.g. `metadata`, `status`, `spec`) SHALL be typed as `octosql.TypeIDStruct` with named subfields. Nested subfields that are also maps SHALL be recursively typed as `TypeIDStruct`. Slices SHALL be typed as `octosql.TypeIDList` with JSON-string elements, so `length()` counts elements and the column renders as a JSON array.
 
@@ -49,20 +39,3 @@ Top-level map fields (e.g. `metadata`, `status`, `spec`) SHALL be typed as `octo
 #### Scenario: length() counts list elements and struct fields
 - **WHEN** the user runs `SELECT length(metadata->labels), length(spec->volumes) FROM pods WHERE name = 'nginx'`
 - **THEN** `length(metadata->labels)` returns the number of labels and `length(spec->volumes)` returns the number of volumes
-
----
-
-### Requirement: No synthetic flattened alias columns
-The schema SHALL NOT include synthetic `parent_child` underscore alias columns. All nested field access is performed via the `->` operator.
-
-#### Scenario: Real resource fields appear as columns
-- **WHEN** the user runs `SELECT * FROM pods`
-- **THEN** the output table includes columns `name`, `namespace`, `status`, `spec`, `metadata`
-
-#### Scenario: WHERE on nested struct field works
-- **WHEN** the user runs `SELECT name FROM pods WHERE metadata->labels->app = 'nginx'`
-- **THEN** the query executes without error and returns pods with label app=nginx
-
-#### Scenario: Empty resource falls back to minimal schema
-- **WHEN** the queried resource has no objects in the cluster
-- **THEN** the query returns an empty result with at least `name`, `namespace` columns and exits 0

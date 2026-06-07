@@ -14,43 +14,44 @@ func FunctionMap() map[string]physical.FunctionDetails {
 }
 
 // lengthFunction implements length(x): the number of elements in a list, tuple,
-// or struct, or the number of characters in a string. Returns NULL on NULL input.
+// or struct, or the number of characters in a string.
+//
+// Each descriptor uses a TypeFn that matches ONLY its own TypeID. octosql's
+// generic ArgumentTypes matching can't express "any struct" or "any list"
+// (Type.Is requires struct field names/counts and list element types to match
+// exactly), so a discriminating TypeFn is the way to accept a whole kind. The
+// TypeFn must return false for other kinds — a TypeFn that always returns true
+// would make this descriptor win for every argument type. Strict matching makes
+// octosql strip a nullable wrapper (struct|null) before dispatch, so
+// length(metadata->labels) resolves to the struct descriptor.
 func lengthFunction() physical.FunctionDetails {
-	intReturn := func([]octosql.Type) (octosql.Type, bool) { return octosql.Int, true }
+	descriptorFor := func(id octosql.TypeID, fn func([]octosql.Value) (octosql.Value, error)) physical.FunctionDescriptor {
+		return physical.FunctionDescriptor{
+			Strict: true,
+			TypeFn: func(types []octosql.Type) (octosql.Type, bool) {
+				if len(types) != 1 || types[0].TypeID != id {
+					return octosql.Type{}, false
+				}
+				return octosql.Int, true
+			},
+			Function: fn,
+		}
+	}
+
 	return physical.FunctionDetails{
 		Descriptors: []physical.FunctionDescriptor{
-			{
-				ArgumentTypes: []octosql.Type{{TypeID: octosql.TypeIDList}},
-				TypeFn:        intReturn,
-				Strict:        true,
-				Function: func(values []octosql.Value) (octosql.Value, error) {
-					return octosql.NewInt(int64(len(values[0].List))), nil
-				},
-			},
-			{
-				ArgumentTypes: []octosql.Type{{TypeID: octosql.TypeIDTuple}},
-				TypeFn:        intReturn,
-				Strict:        true,
-				Function: func(values []octosql.Value) (octosql.Value, error) {
-					return octosql.NewInt(int64(len(values[0].Tuple))), nil
-				},
-			},
-			{
-				ArgumentTypes: []octosql.Type{{TypeID: octosql.TypeIDStruct}},
-				TypeFn:        intReturn,
-				Strict:        true,
-				Function: func(values []octosql.Value) (octosql.Value, error) {
-					return octosql.NewInt(int64(len(values[0].Struct))), nil
-				},
-			},
-			{
-				ArgumentTypes: []octosql.Type{{TypeID: octosql.TypeIDString}},
-				TypeFn:        intReturn,
-				Strict:        true,
-				Function: func(values []octosql.Value) (octosql.Value, error) {
-					return octosql.NewInt(int64(len([]rune(values[0].Str)))), nil
-				},
-			},
+			descriptorFor(octosql.TypeIDList, func(values []octosql.Value) (octosql.Value, error) {
+				return octosql.NewInt(int64(len(values[0].List))), nil
+			}),
+			descriptorFor(octosql.TypeIDTuple, func(values []octosql.Value) (octosql.Value, error) {
+				return octosql.NewInt(int64(len(values[0].Tuple))), nil
+			}),
+			descriptorFor(octosql.TypeIDStruct, func(values []octosql.Value) (octosql.Value, error) {
+				return octosql.NewInt(int64(len(values[0].Struct))), nil
+			}),
+			descriptorFor(octosql.TypeIDString, func(values []octosql.Value) (octosql.Value, error) {
+				return octosql.NewInt(int64(len([]rune(values[0].Str)))), nil
+			}),
 		},
 	}
 }
