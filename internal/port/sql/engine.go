@@ -11,15 +11,19 @@ import (
 
 // Query is a library-free description of a query to run.
 type Query struct {
-	SQL       string
-	Output    string // "table" | "json" | "csv"
-	Namespace string
-	PageSize  int
-	NoColor   bool
+	SQL string
 }
 
 // Engine runs SQL queries against a data source and renders the result.
 type Engine interface {
 	// Execute runs the query and writes the rendered result to w.
 	Execute(ctx context.Context, q Query, w io.Writer) error
+}
+
+// Config holds configuration options for the SQL engine.
+type Config struct {
+	Output    string // "table" | "json" | "csv"
+	Namespace string
+	PageSize  int
+	NoColor   bool
 }

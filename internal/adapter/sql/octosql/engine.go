@@ -29,21 +29,15 @@ import (
 
 // engine implements the sql.Engine port over octosql.
 type engine struct {
-	ds k8sport.DataSource
+	ds     k8sport.DataSource
+	env    physical.Environment
+	config portsql.Config
 }
 
 // New builds an octosql-backed SQL engine that sources data through the given
 // k8s DataSource port. The returned value is port-typed.
-func New(ds k8sport.DataSource) portsql.Engine {
-	return &engine{ds: ds}
-}
-
-// Execute runs the query through the full octosql pipeline and writes the
-// rendered result to w.
-func (e *engine) Execute(ctx context.Context, q portsql.Query, w io.Writer) error {
-	log := logger.FromContext(ctx)
-
-	db := NewKubernetesDatabase(e.ds, q.Namespace, q.PageSize)
+func New(config portsql.Config, ds k8sport.DataSource) portsql.Engine {
+	db := NewKubernetesDatabase(ds, config.Namespace, config.PageSize)
 
 	baseFunctions := octofunctions.FunctionMap()
 	for k, v := range FunctionMap() {
@@ -61,6 +55,16 @@ func (e *engine) Execute(ctx context.Context, q portsql.Query, w io.Writer) erro
 		},
 		VariableContext: nil,
 	}
+
+	return &engine{ds: ds, env: env, config: config}
+}
+
+// Execute runs the query through the full octosql pipeline and writes the
+// rendered result to w.
+func (e *engine) Execute(ctx context.Context, q portsql.Query, w io.Writer) error {
+	log := logger.FromContext(ctx)
+
+	env := e.env
 
 	// Rewrite bare table names (e.g. FROM pods) to k8s.pods so our DB is used.
 	rewritten := rewriteQuery(q.SQL)
@@ -169,7 +173,7 @@ func (e *engine) Execute(ctx context.Context, q portsql.Query, w io.Writer) erro
 		execution.ExecutionContext{Context: ctx, VariableContext: nil},
 		execPlan,
 		Options{
-			Format:          q.Output,
+			Format:          e.config.Output,
 			Limit:           limitInt,
 			OrderBy:         execOrderBy,
 			OrderDirections: logical.DirectionsToMultipliers(outputOptions.OrderByDirections),
