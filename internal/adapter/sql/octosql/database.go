@@ -70,6 +70,8 @@ func guaranteedSchemaFields() []internalschema.Field {
 	return []internalschema.Field{
 		{Name: "name", Type: internalschema.FieldTypeString},
 		{Name: "namespace", Type: internalschema.FieldTypeString},
+		{Name: "labels", Type: internalschema.FieldTypeObject},
+		{Name: "annotations", Type: internalschema.FieldTypeObject},
 	}
 }
 
@@ -184,6 +186,10 @@ func resolveFieldValue(raw map[string]interface{}, field internalschema.Field) o
 		return anyToOctoValue(ResolveField(raw, "metadata.name"))
 	case "namespace":
 		return anyToOctoValue(ResolveField(raw, "metadata.namespace"))
+	case "labels":
+		return anyToOctoValue(ResolveField(raw, "metadata.labels"))
+	case "annotations":
+		return anyToOctoValue(ResolveField(raw, "metadata.annotations"))
 	}
 
 	resolvePath := field.Name

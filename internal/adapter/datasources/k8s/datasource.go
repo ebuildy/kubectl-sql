@@ -19,10 +19,10 @@ import (
 
 // dataSource is the client-go implementation of the k8s.DataSource port.
 type dataSource struct {
-	dyn      dynamic.Interface
-	mapper   meta.RESTMapper
-	disco    discovery.DiscoveryInterface
-	inferrer schemaInferrer
+	dyn    dynamic.Interface
+	mapper meta.RESTMapper
+	disco  discovery.DiscoveryInterface
+	schema schemaInferrer
 }
 
 // New builds a client-go-backed DataSource from kubeconfig + context.
@@ -32,11 +32,8 @@ func New(kubeconfig, kubeContext, namespace string) (k8s.DataSource, error) {
 	if err != nil {
 		return nil, err
 	}
-	inferrer := newCompositeInferrer(
-		newOpenAPIInferrer(disco),
-		newSampleInferrer(dyn, namespace),
-	)
-	return &dataSource{dyn: dyn, mapper: mapper, disco: disco, inferrer: inferrer}, nil
+	schema := newStrategicSchemaProvider(namespace, disco, dyn)
+	return &dataSource{dyn: dyn, mapper: mapper, disco: disco, schema: schema}, nil
 }
 
 // gvrFor maps a domain Resource back to a GroupVersionResource.
@@ -91,7 +88,7 @@ func (d *dataSource) Resources(_ context.Context) ([]k8s.Resource, error) {
 
 // InferSchema returns the column model for a resource.
 func (d *dataSource) InferSchema(ctx context.Context, r k8s.Resource) ([]schema.Field, error) {
-	return d.inferrer.InferFields(ctx, gvrFor(r))
+	return d.schema.InferFields(ctx, gvrFor(r))
 }
 
 // List streams a resource's objects as plain maps, one page per pageFn call.
