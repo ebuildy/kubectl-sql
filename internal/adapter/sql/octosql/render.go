@@ -1,5 +1,4 @@
-// Package output renders query result sets as table, JSON, or CSV.
-package output
+package octosql
 
 import (
 	"encoding/csv"

@@ -1,5 +1,4 @@
-// Package executor tests the Kubernetes datasource over a fake DataSource port.
-package executor
+package octosql
 
 import (
 	"context"

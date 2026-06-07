@@ -1,5 +1,4 @@
-// Package executor_test tests field resolution on unstructured objects.
-package executor
+package octosql
 
 import (
 	"testing"

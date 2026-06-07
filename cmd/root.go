@@ -7,28 +7,18 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"regexp"
 	"sort"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/cube2222/octosql/aggregates"
-	"github.com/cube2222/octosql/execution"
-	"github.com/cube2222/octosql/functions"
-	"github.com/cube2222/octosql/logical"
-	"github.com/cube2222/octosql/optimizer"
-	"github.com/cube2222/octosql/parser"
-	"github.com/cube2222/octosql/parser/sqlparser"
-	"github.com/cube2222/octosql/physical"
-	"github.com/cube2222/octosql/table_valued_functions"
 	k8sadapter "github.com/ebuildy/kubectl-sql/internal/adapter/datasources/k8s"
 	zaplog "github.com/ebuildy/kubectl-sql/internal/adapter/logger/zap"
-	"github.com/ebuildy/kubectl-sql/internal/executor"
-	"github.com/ebuildy/kubectl-sql/internal/output"
+	octosqladapter "github.com/ebuildy/kubectl-sql/internal/adapter/sql/octosql"
 	k8sport "github.com/ebuildy/kubectl-sql/internal/port/datasources/k8s"
 	"github.com/ebuildy/kubectl-sql/internal/port/logger"
 	"github.com/ebuildy/kubectl-sql/internal/port/schema"
+	portsql "github.com/ebuildy/kubectl-sql/internal/port/sql"
 	"github.com/ebuildy/kubectl-sql/internal/repl"
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
@@ -217,138 +207,18 @@ func runQueryWithWriter(cmd *cobra.Command, ctx context.Context, query, kubeconf
 		return runDescribeTable(ctx, ds, resource)
 	}
 
-	db := executor.NewKubernetesDatabase(ds, namespace, pageSize)
-
-	env := physical.Environment{
-		Aggregates: aggregates.Aggregates,
-		Functions:  functions.FunctionMap(),
-		Datasources: &physical.DatasourceRepository{
-			Databases: map[string]func() (physical.Database, error){
-				"k8s": func() (physical.Database, error) { return db, nil },
-			},
-			FileHandlers: map[string]func(context.Context, string, map[string]string) (physical.DatasourceImplementation, physical.Schema, error){},
-		},
-		VariableContext: nil,
-	}
-
-	// Rewrite bare table names (e.g. FROM pods) to k8s.pods so our DB is used.
-	rewritten := rewriteQuery(query)
-	log.Debug("query rewritten", logger.String("rewritten", rewritten))
-
-	statement, err := sqlparser.Parse(rewritten)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %s\n", err)
-		return fmt.Errorf("kubectl-sql: parse query: %w", err)
-	}
-	log.Debug("query parsed")
-	selectStmt, ok := statement.(sqlparser.SelectStatement)
-	if !ok {
-		return fmt.Errorf("kubectl-sql: only SELECT statements are supported")
-	}
-
-	logicalPlan, outputOptions, err := parser.ParseNode(selectStmt)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %s\n", err)
-		return fmt.Errorf("kubectl-sql: parse node: %w", err)
-	}
-
-	tableValuedFuncs := map[string]logical.TableValuedFunctionDescription{
-		"max_diff_watermark": table_valued_functions.MaxDiffWatermark,
-		"tumble":             table_valued_functions.Tumble,
-		"range":              table_valued_functions.Range,
-		"poll":               table_valued_functions.Poll,
-	}
-	uniqueNameGen := map[string]int{}
-	logicalEnv := logical.Environment{
-		CommonTableExpressions: map[string]logical.CommonTableExpression{},
-		TableValuedFunctions:   tableValuedFuncs,
-		UniqueNameGenerator:    uniqueNameGen,
-	}
-
-	physicalPlan, mapping, err := typecheckNode(ctx, logicalPlan, env, logicalEnv)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %s\n", err)
-		return fmt.Errorf("kubectl-sql: typecheck: %w", err)
-	}
-
-	log.Debug("query typechecked")
-	physicalPlan = optimizer.Optimize(physicalPlan)
-	log.Debug("query optimized")
-
-	// Typecheck ORDER BY expressions.
-	orderByExprs := make([]physical.Expression, len(outputOptions.OrderByExpressions))
-	for i, expr := range outputOptions.OrderByExpressions {
-		pe, tcErr := typecheckExpr(ctx, expr, env.WithRecordSchema(physicalPlan.Schema), logical.Environment{
-			CommonTableExpressions: map[string]logical.CommonTableExpression{},
-			TableValuedFunctions:   tableValuedFuncs,
-			UniqueVariableNames:    &logical.VariableMapping{Mapping: mapping},
-			UniqueNameGenerator:    uniqueNameGen,
-		})
-		if tcErr != nil {
-			return fmt.Errorf("kubectl-sql: typecheck order by: %w", tcErr)
-		}
-		orderByExprs[i] = pe
-	}
-
-	var limitInt *int64
-	if outputOptions.Limit != nil {
-		pe, tcErr := typecheckExpr(ctx, *outputOptions.Limit, env.WithRecordSchema(physicalPlan.Schema), logical.Environment{
-			CommonTableExpressions: map[string]logical.CommonTableExpression{},
-			TableValuedFunctions:   tableValuedFuncs,
-			UniqueVariableNames:    &logical.VariableMapping{Mapping: mapping},
-			UniqueNameGenerator:    uniqueNameGen,
-		})
-		if tcErr != nil {
-			return fmt.Errorf("kubectl-sql: typecheck limit: %w", tcErr)
-		}
-		ee, mErr := pe.Materialize(ctx, env.WithRecordSchema(physicalPlan.Schema))
-		if mErr != nil {
-			return fmt.Errorf("kubectl-sql: materialize limit: %w", mErr)
-		}
-		val, evalErr := ee.Evaluate(execution.ExecutionContext{Context: ctx})
-		if evalErr != nil {
-			return fmt.Errorf("kubectl-sql: evaluate limit: %w", evalErr)
-		}
-		limitInt = &val.Int
-	}
-
-	execPlan, err := physicalPlan.Materialize(ctx, env)
-	if err != nil {
-		return fmt.Errorf("kubectl-sql: materialize: %w", err)
-	}
-
-	execOrderBy := make([]execution.Expression, len(orderByExprs))
-	for i, pe := range orderByExprs {
-		ee, mErr := pe.Materialize(ctx, env.WithRecordSchema(physicalPlan.Schema))
-		if mErr != nil {
-			return fmt.Errorf("kubectl-sql: materialize order by: %w", mErr)
-		}
-		execOrderBy[i] = ee
-	}
-
-	reverseMapping := logical.ReverseMapping(mapping)
-	outFields := make([]physical.SchemaField, len(physicalPlan.Schema.Fields))
-	copy(outFields, physicalPlan.Schema.Fields)
-	for i := range outFields {
-		outFields[i].Name = reverseMapping[outFields[i].Name]
-	}
-	outSchema := physical.Schema{Fields: outFields, TimeField: physicalPlan.Schema.TimeField}
-
 	outputFormat, _ := cmd.Flags().GetString("output")
-	renderErr := output.Render(
-		execution.ExecutionContext{Context: ctx, VariableContext: nil},
-		execPlan,
-		output.Options{
-			Format:          outputFormat,
-			Limit:           limitInt,
-			OrderBy:         execOrderBy,
-			OrderDirections: logical.DirectionsToMultipliers(outputOptions.OrderByDirections),
-			Schema:          outSchema,
-			Writer:          w,
-		},
-	)
+	noColor, _ := cmd.Flags().GetBool("no-color")
+	eng := octosqladapter.New(ds)
+	execErr := eng.Execute(ctx, portsql.Query{
+		SQL:       query,
+		Output:    outputFormat,
+		Namespace: namespace,
+		PageSize:  pageSize,
+		NoColor:   noColor,
+	}, w)
 	log.Debug("query completed", logger.Duration("elapsed", time.Since(start)))
-	return renderErr
+	return execErr
 }
 
 func runDescribeTable(ctx context.Context, ds k8sport.DataSource, resource string) error {
@@ -398,77 +268,6 @@ func runShowTables(ctx context.Context, ds k8sport.DataSource) error {
 	}
 	table.Render()
 	return nil
-}
-
-// rewriteQuery performs two rewrites on the raw SQL string before parsing:
-//  1. Replaces multi-part dotted field references (e.g. metadata.labels.app)
-//     with underscore equivalents (metadata_labels_app) so octosql's SQL parser
-//     does not misinterpret them as table.column qualifiers.
-//  2. Prefixes bare table names in FROM/JOIN clauses with "k8s." so octosql
-//     routes them to the KubernetesDatabase.
-func rewriteQuery(query string) string {
-	query = rewriteDottedFields(query)
-
-	stmt, err := sqlparser.Parse(query)
-	if err != nil {
-		return query
-	}
-	sqlparser.Walk(func(node sqlparser.SQLNode) (bool, error) { //nolint:errcheck
-		switch n := node.(type) {
-		case *sqlparser.AliasedTableExpr:
-			if tbl, ok := n.Expr.(sqlparser.TableName); ok {
-				if tbl.Qualifier.IsEmpty() {
-					tbl.Qualifier = sqlparser.NewTableIdent("k8s")
-					n.Expr = tbl
-				}
-			}
-		}
-		return true, nil
-	}, stmt)
-	return sqlparser.String(stmt)
-}
-
-// dottedWildcardRe matches dotted paths ending in .* (e.g. metadata.labels.*).
-var dottedWildcardRe = regexp.MustCompile(`\b([a-zA-Z_][a-zA-Z0-9_]*(?:(?:\.[a-zA-Z_][a-zA-Z0-9_]*)+|\[\d+\](?:\.[a-zA-Z_][a-zA-Z0-9_]*)*))\.\*`)
-
-// dottedFieldRe matches dotted paths that contain NO array indices.
-var dottedFieldRe = regexp.MustCompile(`\b([a-zA-Z_][a-zA-Z0-9_]*)(\.[a-zA-Z_][a-zA-Z0-9_]*)+\b`)
-
-// arrayIndexPathRe matches paths that contain at least one array index [N].
-// Requires at least one [N] bracket — pure dotted paths are excluded.
-// e.g. spec.volumes[0], spec.volumes[0].configMap, spec.containers[1].name
-var arrayIndexPathRe = regexp.MustCompile(`\b[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*|\[\d+\])*\[\d+\](?:\.[a-zA-Z_][a-zA-Z0-9_]*|\[\d+\])*`)
-
-// rewriteDottedFields rewrites field path notation:
-//   - Pure dotted paths (no array indices): metadata.labels.app → metadata->labels->app
-//   - Paths with array indices: spec.volumes[0].configMap → spec_volumes_0_configMap
-//   - Wildcard suffix stripped first: metadata.labels.* → metadata->labels
-//
-// k8s.pods style table qualifiers are left untouched.
-func rewriteDottedFields(query string) string {
-	// Pass 1: paths with array indices → underscore flat names (must run before arrow rewrite)
-	query = arrayIndexPathRe.ReplaceAllStringFunc(query, func(match string) string {
-		if strings.HasPrefix(match, "k8s.") || !strings.ContainsAny(match, "[") {
-			return match
-		}
-		// spec.volumes[0].configMap → spec_volumes_0_configMap
-		s := strings.ReplaceAll(match, "[", "_")
-		s = strings.ReplaceAll(s, "]", "")
-		s = strings.ReplaceAll(s, ".", "_")
-		return s
-	})
-	// Pass 2: strip wildcard suffix (metadata.labels.* → metadata.labels)
-	query = dottedWildcardRe.ReplaceAllStringFunc(query, func(match string) string {
-		return match[:len(match)-2] // strip .*
-	})
-	// Pass 3: pure dotted paths → arrow chains, skip k8s.* table qualifiers
-	query = dottedFieldRe.ReplaceAllStringFunc(query, func(match string) string {
-		if strings.HasPrefix(match, "k8s.") {
-			return match
-		}
-		return strings.ReplaceAll(match, ".", "->")
-	})
-	return query
 }
 
 // runWatch polls the query every 5 seconds, clearing the terminal and reprinting
@@ -526,23 +325,4 @@ func runWatch(cmd *cobra.Command, ctx context.Context, query, kubeconfig, kubeCo
 			}
 		}
 	}
-}
-
-func typecheckNode(ctx context.Context, node logical.Node, env physical.Environment, logicalEnv logical.Environment) (_ physical.Node, _ map[string]string, outErr error) {
-	defer func() {
-		if r := recover(); r != nil {
-			outErr = fmt.Errorf("typecheck error: %v", r)
-		}
-	}()
-	physicalNode, mapping := node.Typecheck(ctx, env, logicalEnv)
-	return physicalNode, mapping, nil
-}
-
-func typecheckExpr(ctx context.Context, expr logical.Expression, env physical.Environment, logicalEnv logical.Environment) (_ physical.Expression, outErr error) {
-	defer func() {
-		if r := recover(); r != nil {
-			outErr = fmt.Errorf("typecheck error: %v", r)
-		}
-	}()
-	return expr.Typecheck(ctx, env, logicalEnv), nil
 }
