@@ -1,4 +1,12 @@
-## ADDED Requirements
+# Spec: Logging
+
+## Purpose
+
+Defines leveled logging for `kubectl-sql`: a `-v`/`-vv` verbosity flag, stderr-only output so query results stay clean, a logger shared through the command context, isolation of the logging library behind a port/adapter boundary, and useful debug/info traces (with timings) at key execution boundaries.
+
+---
+
+## Requirements
 
 ### Requirement: Verbosity flag controls log level
 The CLI SHALL accept a repeatable `-v` / `--verbose` flag that sets the logging level. With no flag the level SHALL be `error`; `-v` SHALL set `info`; `-vv` (or more) SHALL set `debug`.
@@ -23,7 +31,7 @@ All log output SHALL be written to stderr so that query results on stdout remain
 - **THEN** stdout contains only the valid JSON result and all log lines appear on stderr
 
 ### Requirement: Logger is available throughout the execution pipeline
-A leveled logger SHALL be constructed once per invocation and made available to the Kubernetes client, schema inference, query pipeline, REPL, and watch components via the command context. Components SHALL retrieve it from context rather than constructing their own.
+A leveled logger SHALL be constructed once per invocation and made available to the Kubernetes data source, schema inference, query engine, REPL, and watch components via the command context. Components SHALL retrieve it from context rather than constructing their own.
 
 #### Scenario: Components log through the shared logger
 - **WHEN** any pipeline component emits a log entry
@@ -45,7 +53,7 @@ The logging implementation SHALL be hidden behind a domain-owned `Logger` interf
 - **THEN** no package outside `internal/adapter/logger/*` and the one `cmd` wiring line requires modification
 
 ### Requirement: Useful debug and info traces at key boundaries
-The system SHALL emit `info` logs for major lifecycle events (cluster connection established, query accepted, REPL/watch started) and `debug` logs for detailed steps (resolved GVR, schema inference source, parsed/typechecked plan, LIST pagination, per-tick watch refresh).
+The system SHALL emit `info` logs for major lifecycle events (cluster connection established, query accepted, REPL/watch started) and `debug` logs for detailed steps (resolved resource, schema inference source, parsed/typechecked/optimized plan, LIST pagination, per-tick watch refresh). Debug logs SHALL include elapsed time in milliseconds for the total query, schema inference, and each LIST page, via a library-agnostic duration field constructor.
 
 #### Scenario: Info trace on query execution
 - **WHEN** the user runs a query with `-v`
@@ -53,4 +61,8 @@ The system SHALL emit `info` logs for major lifecycle events (cluster connection
 
 #### Scenario: Debug trace on schema inference
 - **WHEN** the user runs a query with `-vv`
-- **THEN** a `debug` log records which inferrer (OpenAPI or sample) supplied the schema and the resolved GroupVersionResource
+- **THEN** a `debug` log records which inferrer (OpenAPI or sample) supplied the schema and the resolved resource
+
+#### Scenario: Debug traces record timing
+- **WHEN** the user runs a query with `-vv`
+- **THEN** debug logs include an elapsed-milliseconds field for the total query and for schema inference
