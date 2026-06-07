@@ -1,11 +1,8 @@
 package schema
 
 import (
-	"context"
 	"strings"
 	"testing"
-
-	k8sschema "k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 func fieldNames(fields []Field) []string {
@@ -214,51 +211,5 @@ func TestWalkObject_Slice(t *testing.T) {
 	}
 	if len(f.SubFields) != 0 {
 		t.Errorf("items: expected empty SubFields for slice, got %v", f.SubFields)
-	}
-}
-
-// stubInferrer is a test double for SchemaInferrer.
-type stubInferrer struct {
-	fields []Field
-	called bool
-}
-
-func (s *stubInferrer) InferFields(_ context.Context, _ k8sschema.GroupVersionResource) ([]Field, error) {
-	s.called = true
-	return s.fields, nil
-}
-
-func TestCompositeInferrer_UsesPrimaryWhenAvailable(t *testing.T) {
-	primary := &stubInferrer{fields: []Field{{Name: "name", Type: FieldTypeString}}}
-	secondary := &stubInferrer{}
-	c := NewCompositeInferrer(primary, secondary)
-
-	fields, err := c.InferFields(context.Background(), k8sschema.GroupVersionResource{Resource: "pods"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(fields) == 0 {
-		t.Error("expected fields from primary")
-	}
-	// Secondary is always called for SubField merging even when primary succeeds.
-	if !secondary.called {
-		t.Error("secondary should be called for SubField merging")
-	}
-}
-
-func TestCompositeInferrer_FallsBackOnEmpty(t *testing.T) {
-	primary := &stubInferrer{fields: nil}
-	secondary := &stubInferrer{fields: []Field{{Name: "name", Type: FieldTypeString}}}
-	c := NewCompositeInferrer(primary, secondary)
-
-	fields, err := c.InferFields(context.Background(), k8sschema.GroupVersionResource{Resource: "pods"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !secondary.called {
-		t.Error("secondary should be called when primary returns nil")
-	}
-	if len(fields) == 0 {
-		t.Error("expected fields from secondary")
 	}
 }

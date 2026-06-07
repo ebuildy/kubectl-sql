@@ -10,31 +10,24 @@ import (
 	octoexec "github.com/cube2222/octosql/execution"
 	"github.com/cube2222/octosql/octosql"
 	"github.com/cube2222/octosql/physical"
-	"github.com/ebuildy/kubectl-sql/internal/port/logger"
-	internalschema "github.com/ebuildy/kubectl-sql/internal/schema"
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/dynamic"
+	k8sport "github.com/ebuildy/kubectl-sql/internal/port/datasources/k8s"
+	internalschema "github.com/ebuildy/kubectl-sql/internal/port/schema"
 )
 
 // KubernetesDatabase implements physical.Database — one "database" for the whole cluster.
+// It obtains all cluster data through the k8s DataSource port (no client-go here).
 type KubernetesDatabase struct {
-	client    dynamic.Interface
-	mapper    meta.RESTMapper
+	ds        k8sport.DataSource
 	namespace string
 	pageSize  int64
-	inferrer  internalschema.SchemaInferrer
 }
 
-// NewKubernetesDatabase creates a new KubernetesDatabase.
-func NewKubernetesDatabase(client dynamic.Interface, mapper meta.RESTMapper, namespace string, pageSize int, inferrer internalschema.SchemaInferrer) *KubernetesDatabase {
+// NewKubernetesDatabase creates a new KubernetesDatabase backed by a DataSource port.
+func NewKubernetesDatabase(ds k8sport.DataSource, namespace string, pageSize int) *KubernetesDatabase {
 	return &KubernetesDatabase{
-		client:    client,
-		mapper:    mapper,
+		ds:        ds,
 		namespace: namespace,
 		pageSize:  int64(pageSize),
-		inferrer:  inferrer,
 	}
 }
 
@@ -43,25 +36,22 @@ func (db *KubernetesDatabase) ListTables(_ context.Context) ([]string, error) {
 	return nil, nil
 }
 
-// GetTable resolves a resource kind to a GVR, infers the schema via the SchemaInferrer,
-// and returns the datasource implementation.
+// GetTable resolves a resource kind via the port, infers its schema, and returns
+// the datasource implementation.
 func (db *KubernetesDatabase) GetTable(ctx context.Context, name string, _ map[string]string) (physical.DatasourceImplementation, physical.Schema, error) {
-	gvr, err := db.mapper.ResourceFor(schema.GroupVersionResource{Resource: name})
+	resource, err := db.ds.Resolve(ctx, name)
 	if err != nil {
 		return nil, physical.Schema{}, fmt.Errorf("executor: resolve resource %q: %w", name, err)
 	}
 
-	var inferredFields []internalschema.Field
-	if db.inferrer != nil {
-		inferredFields, _ = db.inferrer.InferFields(ctx, gvr)
-	}
+	inferredFields, _ := db.ds.InferSchema(ctx, resource)
 	if len(inferredFields) == 0 {
 		inferredFields = guaranteedSchemaFields()
 	}
 
 	impl := &kubernetesDatasource{
-		client:    db.client,
-		gvr:       gvr,
+		ds:        db.ds,
+		resource:  resource,
 		namespace: db.namespace,
 		pageSize:  db.pageSize,
 		fields:    inferredFields,
@@ -120,8 +110,8 @@ func fieldToOctoType(f internalschema.Field) octosql.Type {
 
 // kubernetesDatasource implements physical.DatasourceImplementation.
 type kubernetesDatasource struct {
-	client    dynamic.Interface
-	gvr       schema.GroupVersionResource
+	ds        k8sport.DataSource
+	resource  k8sport.Resource
 	namespace string
 	pageSize  int64
 	fields    []internalschema.Field // full inferred schema (for path/SubFields lookup)
@@ -146,8 +136,8 @@ func (ds *kubernetesDatasource) Materialize(_ context.Context, _ physical.Enviro
 	}
 
 	return &kubernetesExecution{
-		client:    ds.client,
-		gvr:       ds.gvr,
+		ds:        ds.ds,
+		resource:  ds.resource,
 		namespace: ds.namespace,
 		pageSize:  ds.pageSize,
 		fields:    execFields,
@@ -158,56 +148,20 @@ func (ds *kubernetesDatasource) PushDownPredicates(newPredicates, _ []physical.E
 	return newPredicates, nil, false
 }
 
-// kubernetesExecution implements execution.Node — streams k8s resources as rows.
+// kubernetesExecution implements execution.Node — streams k8s resources as rows
+// obtained through the DataSource port.
 type kubernetesExecution struct {
-	client    dynamic.Interface
-	gvr       schema.GroupVersionResource
+	ds        k8sport.DataSource
+	resource  k8sport.Resource
 	namespace string
 	pageSize  int64
 	fields    []internalschema.Field // pruned, ordered to match row value positions
 }
 
 func (e *kubernetesExecution) Run(execCtx octoexec.ExecutionContext, produce octoexec.ProduceFn, _ octoexec.MetaSendFn) error {
-	var continueToken string
-	log := logger.FromContext(execCtx.Context)
-	ri := e.client.Resource(e.gvr)
-
-	page := 0
-	for {
-		opts := metav1.ListOptions{Limit: e.pageSize, Continue: continueToken}
-		pageStart := time.Now()
-
-		var items []map[string]interface{}
-		var nextToken string
-
-		if e.namespace != "" {
-			list, err := ri.Namespace(e.namespace).List(execCtx.Context, opts)
-			if err != nil {
-				return fmt.Errorf("executor: list %s: %w", e.gvr.Resource, err)
-			}
-			for i := range list.Items {
-				items = append(items, list.Items[i].Object)
-			}
-			nextToken = list.GetContinue()
-		} else {
-			list, err := ri.List(execCtx.Context, opts)
-			if err != nil {
-				return fmt.Errorf("executor: list %s: %w", e.gvr.Resource, err)
-			}
-			for i := range list.Items {
-				items = append(items, list.Items[i].Object)
-			}
-			nextToken = list.GetContinue()
-		}
-
-		log.Debug("listed resource page",
-			logger.String("resource", e.gvr.Resource),
-			logger.Int("page", page),
-			logger.Int("items", len(items)),
-			logger.Duration("elapsed", time.Since(pageStart)))
-		page++
-
-		for _, raw := range items {
+	opts := k8sport.ListOptions{Namespace: e.namespace, PageSize: e.pageSize}
+	return e.ds.List(execCtx.Context, e.resource, opts, func(page []map[string]any) error {
+		for _, raw := range page {
 			row := make([]octosql.Value, len(e.fields))
 			for j, field := range e.fields {
 				row[j] = resolveFieldValue(raw, field)
@@ -219,13 +173,8 @@ func (e *kubernetesExecution) Run(execCtx octoexec.ExecutionContext, produce oct
 				return fmt.Errorf("executor: produce record: %w", err)
 			}
 		}
-
-		continueToken = nextToken
-		if continueToken == "" {
-			break
-		}
-	}
-	return nil
+		return nil
+	})
 }
 
 // resolveFieldValue extracts the octosql.Value for a single field from a raw k8s object.

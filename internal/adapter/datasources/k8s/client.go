@@ -1,4 +1,8 @@
-// Package k8s bootstraps the Kubernetes dynamic client from kubeconfig.
+// Package k8s is the client-go adapter for the Kubernetes data-source port
+// (internal/port/datasources/k8s). It is the ONLY package (besides the cmd
+// composition root) that imports k8s.io/client-go, k8s.io/apimachinery,
+// k8s.io/kube-openapi, or k8s.io/client-go/discovery. All client-go types are
+// mapped to domain types at this boundary.
 package k8s
 
 import (
@@ -12,9 +16,9 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-// NewDynamicClient builds a dynamic Kubernetes client, REST mapper, and discovery client
-// from the given kubeconfig path and context name. Empty strings use the default kubeconfig and context.
-func NewDynamicClient(kubeconfig, kubeContext string) (dynamic.Interface, meta.RESTMapper, discovery.DiscoveryInterface, error) {
+// newDynamicClient builds a dynamic client, REST mapper, and discovery client
+// from the given kubeconfig path and context name. Empty strings use defaults.
+func newDynamicClient(kubeconfig, kubeContext string) (dynamic.Interface, meta.RESTMapper, discovery.DiscoveryInterface, error) {
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 	if kubeconfig != "" {
 		loadingRules.ExplicitPath = kubeconfig

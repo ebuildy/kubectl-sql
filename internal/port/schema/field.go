@@ -1,15 +1,7 @@
+// Package schema holds the library-free column model used across the ports.
+// It contains no Kubernetes (or any datasource library) imports so it can be
+// referenced by both ports and adapters without coupling.
 package schema
-
-import (
-	"context"
-
-	k8sschema "k8s.io/apimachinery/pkg/runtime/schema"
-)
-
-// SchemaInferrer is the port for schema inference. All consumers depend only on this interface.
-type SchemaInferrer interface {
-	InferFields(ctx context.Context, gvr k8sschema.GroupVersionResource) ([]Field, error)
-}
 
 // FieldType describes the inferred type of a resource column.
 type FieldType string
@@ -45,4 +37,19 @@ var ignoredFieldNames = map[string]bool{
 // isIgnoredField reports whether a field name should be omitted from inference.
 func isIgnoredField(name string) bool {
 	return ignoredFieldNames[name]
+}
+
+// IsIgnoredField reports whether a field name is a server-managed field that
+// should be omitted from inference. Exported for adapters that build fields.
+func IsIgnoredField(name string) bool { return isIgnoredField(name) }
+
+// IsGuaranteedName reports whether name is one of the always-present columns
+// (name, namespace) that inferrers prepend.
+func IsGuaranteedName(name string) bool { return guaranteedNames[name] }
+
+// GuaranteedFields returns a copy of the always-present field list (name, namespace).
+func GuaranteedFields() []Field {
+	out := make([]Field, len(guaranteedFields))
+	copy(out, guaranteedFields)
+	return out
 }

@@ -22,19 +22,17 @@ import (
 	"github.com/cube2222/octosql/parser/sqlparser"
 	"github.com/cube2222/octosql/physical"
 	"github.com/cube2222/octosql/table_valued_functions"
+	k8sadapter "github.com/ebuildy/kubectl-sql/internal/adapter/datasources/k8s"
 	zaplog "github.com/ebuildy/kubectl-sql/internal/adapter/logger/zap"
 	"github.com/ebuildy/kubectl-sql/internal/executor"
-	k8sclient "github.com/ebuildy/kubectl-sql/internal/k8s"
 	"github.com/ebuildy/kubectl-sql/internal/output"
+	k8sport "github.com/ebuildy/kubectl-sql/internal/port/datasources/k8s"
 	"github.com/ebuildy/kubectl-sql/internal/port/logger"
+	"github.com/ebuildy/kubectl-sql/internal/port/schema"
 	"github.com/ebuildy/kubectl-sql/internal/repl"
-	internalschema "github.com/ebuildy/kubectl-sql/internal/schema"
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	k8sschema "k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 var rootCmd = &cobra.Command{
@@ -125,56 +123,42 @@ func runREPL(cmd *cobra.Command, interactive bool) error {
 	return repl.Run(cmd.Context(), replCfg, os.Stdout)
 }
 
-// cliCompletionSource implements repl.CompletionSource over discovery (for
-// table names) and the schema inferrer (for column names).
+// cliCompletionSource implements repl.CompletionSource over the k8s DataSource port.
 type cliCompletionSource struct {
-	ctx      context.Context
-	mapper   meta.RESTMapper
-	inferrer internalschema.SchemaInferrer
-	disco    interface {
-		ServerPreferredResources() ([]*metav1.APIResourceList, error)
-	}
+	ctx context.Context
+	ds  k8sport.DataSource
 }
 
 // newCompletionSource builds a completion source, returning nil if the cluster
 // connection fails (completion is then disabled).
 func newCompletionSource(ctx context.Context, kubeconfig, kubeContext, namespace string) repl.CompletionSource {
-	dynClient, mapper, discoClient, err := k8sclient.NewDynamicClient(kubeconfig, kubeContext)
+	ds, err := k8sadapter.New(kubeconfig, kubeContext, namespace)
 	if err != nil {
 		return nil
 	}
-	inferrer := internalschema.NewCompositeInferrer(
-		internalschema.NewOpenAPIInferrer(discoClient),
-		internalschema.NewSampleInferrer(dynClient, namespace),
-	)
-	return &cliCompletionSource{ctx: ctx, mapper: mapper, inferrer: inferrer, disco: discoClient}
+	return &cliCompletionSource{ctx: ctx, ds: ds}
 }
 
-// Tables returns queryable resource names, using the same filtering as SHOW TABLES.
+// Tables returns queryable resource names via the port.
 func (s *cliCompletionSource) Tables() []string {
-	lists, err := s.disco.ServerPreferredResources()
+	resources, err := s.ds.Resources(s.ctx)
 	if err != nil {
 		return nil
 	}
-	var names []string
-	for _, list := range lists {
-		for _, r := range list.APIResources {
-			if strings.Contains(r.Name, "/") {
-				continue // skip subresources like pods/log
-			}
-			names = append(names, r.Name)
-		}
+	names := make([]string, 0, len(resources))
+	for _, r := range resources {
+		names = append(names, r.Name)
 	}
 	return names
 }
 
 // Columns returns the column names for a table, or nil if it cannot be resolved.
 func (s *cliCompletionSource) Columns(table string) []string {
-	gvr, err := s.mapper.ResourceFor(k8sschema.GroupVersionResource{Resource: strings.ToLower(table)})
+	resource, err := s.ds.Resolve(s.ctx, strings.ToLower(table))
 	if err != nil {
 		return nil
 	}
-	fields, err := s.inferrer.InferFields(s.ctx, gvr)
+	fields, err := s.ds.InferSchema(s.ctx, resource)
 	if err != nil {
 		return nil
 	}
@@ -209,24 +193,19 @@ func runQueryWithWriter(cmd *cobra.Command, ctx context.Context, query, kubeconf
 	log.Info("query accepted", logger.String("query", query), logger.String("namespace", namespace))
 
 	if strings.EqualFold(strings.TrimSpace(query), "show tables") {
-		_, _, discoClient, err := k8sclient.NewDynamicClient(kubeconfig, kubeContext)
+		ds, err := k8sadapter.New(kubeconfig, kubeContext, namespace)
 		if err != nil {
 			return fmt.Errorf("kubectl-sql: connect to cluster: %w", err)
 		}
 		log.Debug("cluster connection established", logger.String("mode", "show tables"))
-		return runShowTables(discoClient)
+		return runShowTables(ctx, ds)
 	}
 
-	dynClient, mapper, discoClient, err := k8sclient.NewDynamicClient(kubeconfig, kubeContext)
+	ds, err := k8sadapter.New(kubeconfig, kubeContext, namespace)
 	if err != nil {
 		return fmt.Errorf("kubectl-sql: connect to cluster: %w", err)
 	}
 	log.Info("cluster connection established")
-
-	inferrer := internalschema.NewCompositeInferrer(
-		internalschema.NewOpenAPIInferrer(discoClient),
-		internalschema.NewSampleInferrer(dynClient, namespace),
-	)
 
 	if tok := strings.Fields(strings.ToLower(strings.TrimSpace(query))); len(tok) >= 2 && tok[0] == "describe" && tok[1] == "table" {
 		parts := strings.Fields(strings.TrimSpace(query))
@@ -235,10 +214,10 @@ func runQueryWithWriter(cmd *cobra.Command, ctx context.Context, query, kubeconf
 			return fmt.Errorf("kubectl-sql: missing resource name")
 		}
 		resource := strings.ToLower(parts[2])
-		return runDescribeTable(ctx, mapper, inferrer, resource)
+		return runDescribeTable(ctx, ds, resource)
 	}
 
-	db := executor.NewKubernetesDatabase(dynClient, mapper, namespace, pageSize, inferrer)
+	db := executor.NewKubernetesDatabase(ds, namespace, pageSize)
 
 	env := physical.Environment{
 		Aggregates: aggregates.Aggregates,
@@ -372,17 +351,17 @@ func runQueryWithWriter(cmd *cobra.Command, ctx context.Context, query, kubeconf
 	return renderErr
 }
 
-func runDescribeTable(ctx context.Context, mapper meta.RESTMapper, inferrer internalschema.SchemaInferrer, resource string) error {
-	gvr, err := mapper.ResourceFor(k8sschema.GroupVersionResource{Resource: resource})
+func runDescribeTable(ctx context.Context, ds k8sport.DataSource, resource string) error {
+	r, err := ds.Resolve(ctx, resource)
 	if err != nil {
 		return fmt.Errorf("kubectl-sql: unknown resource %q: %w", resource, err)
 	}
 
-	fields, _ := inferrer.InferFields(ctx, gvr)
+	fields, _ := ds.InferSchema(ctx, r)
 	if len(fields) == 0 {
-		fields = []internalschema.Field{
-			{Name: "name", Type: internalschema.FieldTypeString},
-			{Name: "namespace", Type: internalschema.FieldTypeString},
+		fields = []schema.Field{
+			{Name: "name", Type: schema.FieldTypeString},
+			{Name: "namespace", Type: schema.FieldTypeString},
 		}
 	}
 
@@ -396,30 +375,16 @@ func runDescribeTable(ctx context.Context, mapper meta.RESTMapper, inferrer inte
 	return nil
 }
 
-func runShowTables(discoClient interface {
-	ServerPreferredResources() ([]*metav1.APIResourceList, error)
-}) error {
-	lists, err := discoClient.ServerPreferredResources()
+func runShowTables(ctx context.Context, ds k8sport.DataSource) error {
+	resources, err := ds.Resources(ctx)
 	if err != nil {
 		return fmt.Errorf("kubectl-sql: list API resources: %w", err)
 	}
 
 	type row struct{ name, aliases, group, version string }
-	var rows []row
-	for _, list := range lists {
-		gv := list.GroupVersion
-		var group, version string
-		if idx := strings.LastIndex(gv, "/"); idx >= 0 {
-			group, version = gv[:idx], gv[idx+1:]
-		} else {
-			version = gv
-		}
-		for _, r := range list.APIResources {
-			if strings.Contains(r.Name, "/") {
-				continue // skip subresources like pods/log
-			}
-			rows = append(rows, row{r.Name, strings.Join(r.ShortNames, ","), group, version})
-		}
+	rows := make([]row, 0, len(resources))
+	for _, r := range resources {
+		rows = append(rows, row{r.Name, strings.Join(r.Aliases, ","), r.Group, r.Version})
 	}
 	sort.Slice(rows, func(i, j int) bool {
 		return rows[i].name < rows[j].name
