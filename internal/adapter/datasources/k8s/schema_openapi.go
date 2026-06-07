@@ -65,8 +65,6 @@ func (o *openAPIInferrer) fetchSchema(gvr k8sschema.GroupVersionResource) (*spec
 		return nil, fmt.Errorf("openapi: fetch schema for %s: %w", pathKey, err)
 	}
 
-	fmt.Println(string(schemaBytes))
-
 	var doc spec3.OpenAPI
 	if err := json.Unmarshal(schemaBytes, &doc); err != nil {
 		return nil, fmt.Errorf("openapi: parse schema: %w", err)
