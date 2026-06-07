@@ -209,13 +209,15 @@ func runQueryWithWriter(cmd *cobra.Command, ctx context.Context, query, kubeconf
 
 	outputFormat, _ := cmd.Flags().GetString("output")
 	noColor, _ := cmd.Flags().GetBool("no-color")
-	eng := octosqladapter.New(ds)
-	execErr := eng.Execute(ctx, portsql.Query{
-		SQL:       query,
+	config := portsql.Config{
 		Output:    outputFormat,
 		Namespace: namespace,
 		PageSize:  pageSize,
 		NoColor:   noColor,
+	}
+	eng := octosqladapter.New(config, ds)
+	execErr := eng.Execute(ctx, portsql.Query{
+		SQL: query,
 	}, w)
 	log.Debug("query completed", logger.Duration("elapsed", time.Since(start)))
 	return execErr
