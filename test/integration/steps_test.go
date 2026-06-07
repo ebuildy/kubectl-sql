@@ -122,6 +122,24 @@ func (tc *testContext) iRunKubectlSqlWithWatchFlag(query string) error {
 	return tc.runBinary("--watch", "--timeout", "3s", "--output", "json", query)
 }
 
+func (tc *testContext) iRunKubectlSqlVerbose(flag, query string) error {
+	return tc.runBinary(flag, "--output", "json", query)
+}
+
+func (tc *testContext) theStderrContains(s string) error {
+	if strings.Contains(tc.stderr, s) {
+		return nil
+	}
+	return fmt.Errorf("expected stderr to contain %q\nstderr:\n%s", s, tc.stderr)
+}
+
+func (tc *testContext) theStderrIsEmpty() error {
+	if strings.TrimSpace(tc.stderr) != "" {
+		return fmt.Errorf("expected empty stderr, got:\n%s", tc.stderr)
+	}
+	return nil
+}
+
 // iPipeQueryToKubectlSql runs the binary with no positional query, feeding the
 // query on stdin. With non-TTY stdin the REPL enters batch mode.
 func (tc *testContext) iPipeQueryToKubectlSql(query string) error {
@@ -257,5 +275,8 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the output produces JQ "([^"]*)"$`, tc.theOutputProducesJQ)
 	sc.Step(`^I run kubectl-sql --watch "([^"]*)" against the envtest cluster$`, tc.iRunKubectlSqlWithWatchFlag)
 	sc.Step(`^I pipe "([^"]*)" to kubectl-sql against the envtest cluster$`, tc.iPipeQueryToKubectlSql)
+	sc.Step(`^I run kubectl-sql ([\-v]+) with query "([^"]*)" against the envtest cluster$`, tc.iRunKubectlSqlVerbose)
+	sc.Step(`^the stderr contains "([^"]*)"$`, tc.theStderrContains)
+	sc.Step(`^the stderr is empty$`, tc.theStderrIsEmpty)
 	sc.Step(`^I pick a random fixture namespace$`, tc.iPickARandomFixtureNamespace)
 }

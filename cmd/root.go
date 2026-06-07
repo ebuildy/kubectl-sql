@@ -22,9 +22,11 @@ import (
 	"github.com/cube2222/octosql/parser/sqlparser"
 	"github.com/cube2222/octosql/physical"
 	"github.com/cube2222/octosql/table_valued_functions"
+	zaplog "github.com/ebuildy/kubectl-sql/internal/adapter/logger/zap"
 	"github.com/ebuildy/kubectl-sql/internal/executor"
 	k8sclient "github.com/ebuildy/kubectl-sql/internal/k8s"
 	"github.com/ebuildy/kubectl-sql/internal/output"
+	"github.com/ebuildy/kubectl-sql/internal/port/logger"
 	"github.com/ebuildy/kubectl-sql/internal/repl"
 	internalschema "github.com/ebuildy/kubectl-sql/internal/schema"
 	"github.com/olekukonko/tablewriter"
@@ -44,7 +46,15 @@ using SQL-like syntax for fast debugging, error discovery, and cross-namespace a
 Example:
   kubectl sql "SELECT name, namespace, status.phase FROM pods WHERE status.phase != 'Running'"`,
 	Args: cobra.MaximumNArgs(1),
+	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+		verbosity, _ := cmd.Flags().GetCount("verbose")
+		noColor, _ := cmd.Flags().GetBool("no-color")
+		l := zaplog.New(logger.Options{Verbosity: verbosity, NoColor: noColor})
+		cmd.SetContext(logger.IntoContext(cmd.Context(), l))
+		return nil
+	},
 	RunE: func(cmd *cobra.Command, args []string) error {
+		defer func() { _ = logger.FromContext(cmd.Context()).Sync() }()
 		if len(args) == 0 {
 			replFlag, _ := cmd.Flags().GetBool("repl")
 			interactive := replFlag || repl.StdinIsTTY()
@@ -79,6 +89,7 @@ func init() {
 	rootCmd.PersistentFlags().Bool("dry-run", false, "Validate SQL without hitting the API")
 	rootCmd.PersistentFlags().BoolP("watch", "w", false, "Stream live resource changes via the Kubernetes WATCH API")
 	rootCmd.PersistentFlags().BoolP("repl", "i", false, "Open an interactive SQL REPL (default when no query is given)")
+	rootCmd.PersistentFlags().CountP("verbose", "v", "Increase log verbosity: -v=info, -vv=debug (default error)")
 }
 
 // runREPL wires the REPL package to the cobra command, forwarding all flags via
@@ -193,12 +204,16 @@ func runQuery(cmd *cobra.Command, query string) error {
 
 func runQueryWithWriter(cmd *cobra.Command, ctx context.Context, query, kubeconfig, kubeContext, namespace string, w io.Writer) error {
 	pageSize, _ := cmd.Flags().GetInt("page-size")
+	log := logger.FromContext(ctx)
+	start := time.Now()
+	log.Info("query accepted", logger.String("query", query), logger.String("namespace", namespace))
 
 	if strings.EqualFold(strings.TrimSpace(query), "show tables") {
 		_, _, discoClient, err := k8sclient.NewDynamicClient(kubeconfig, kubeContext)
 		if err != nil {
 			return fmt.Errorf("kubectl-sql: connect to cluster: %w", err)
 		}
+		log.Debug("cluster connection established", logger.String("mode", "show tables"))
 		return runShowTables(discoClient)
 	}
 
@@ -206,6 +221,7 @@ func runQueryWithWriter(cmd *cobra.Command, ctx context.Context, query, kubeconf
 	if err != nil {
 		return fmt.Errorf("kubectl-sql: connect to cluster: %w", err)
 	}
+	log.Info("cluster connection established")
 
 	inferrer := internalschema.NewCompositeInferrer(
 		internalschema.NewOpenAPIInferrer(discoClient),
@@ -238,12 +254,14 @@ func runQueryWithWriter(cmd *cobra.Command, ctx context.Context, query, kubeconf
 
 	// Rewrite bare table names (e.g. FROM pods) to k8s.pods so our DB is used.
 	rewritten := rewriteQuery(query)
+	log.Debug("query rewritten", logger.String("rewritten", rewritten))
 
 	statement, err := sqlparser.Parse(rewritten)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		return fmt.Errorf("kubectl-sql: parse query: %w", err)
 	}
+	log.Debug("query parsed")
 	selectStmt, ok := statement.(sqlparser.SelectStatement)
 	if !ok {
 		return fmt.Errorf("kubectl-sql: only SELECT statements are supported")
@@ -274,7 +292,9 @@ func runQueryWithWriter(cmd *cobra.Command, ctx context.Context, query, kubeconf
 		return fmt.Errorf("kubectl-sql: typecheck: %w", err)
 	}
 
+	log.Debug("query typechecked")
 	physicalPlan = optimizer.Optimize(physicalPlan)
+	log.Debug("query optimized")
 
 	// Typecheck ORDER BY expressions.
 	orderByExprs := make([]physical.Expression, len(outputOptions.OrderByExpressions))
@@ -336,7 +356,7 @@ func runQueryWithWriter(cmd *cobra.Command, ctx context.Context, query, kubeconf
 	outSchema := physical.Schema{Fields: outFields, TimeField: physicalPlan.Schema.TimeField}
 
 	outputFormat, _ := cmd.Flags().GetString("output")
-	return output.Render(
+	renderErr := output.Render(
 		execution.ExecutionContext{Context: ctx, VariableContext: nil},
 		execPlan,
 		output.Options{
@@ -348,6 +368,8 @@ func runQueryWithWriter(cmd *cobra.Command, ctx context.Context, query, kubeconf
 			Writer:          w,
 		},
 	)
+	log.Debug("query completed", logger.Duration("elapsed", time.Since(start)))
+	return renderErr
 }
 
 func runDescribeTable(ctx context.Context, mapper meta.RESTMapper, inferrer internalschema.SchemaInferrer, resource string) error {
@@ -508,7 +530,9 @@ func runWatch(cmd *cobra.Command, ctx context.Context, query, kubeconfig, kubeCo
 
 	isTTY := isTerminal(os.Stdout)
 
+	log := logger.FromContext(ctx)
 	tick := func() error {
+		log.Debug("watch tick: refreshing query")
 		var buf strings.Builder
 		if err := runQueryWithWriter(cmd, watchCtx, query, kubeconfig, kubeContext, namespace, &buf); err != nil {
 			return err

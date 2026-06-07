@@ -71,6 +71,16 @@ line:
 echo "SELECT name FROM pods LIMIT 5" | kubectl-sql
 ```
 
+### Logging
+
+By default only errors are logged. Increase verbosity with `-v` (info) or `-vv`
+(debug, including per-step timings in ms). All logs are written to **stderr**, so
+query results on stdout stay clean and pipeable:
+
+```
+kubectl-sql -vv --output json "SELECT name FROM pods" 2>debug.log | jq .
+```
+
 ### Flags
 
 | Flag | Short | Default | Description |
@@ -78,6 +88,7 @@ echo "SELECT name FROM pods LIMIT 5" | kubectl-sql
 | `--output` | `-o` | `table` | Output format: `table`, `json`, `csv` |
 | `--repl` | `-i` | `false` | Open the interactive SQL REPL (default when no query is given) |
 | `--watch` | `-w` | `false` | Re-run the query every 5s, refreshing the table |
+| `--verbose` | `-v` | `error` | Increase log verbosity: `-v`=info, `-vv`=debug. Logs go to stderr |
 | `--namespace` | `-n` | all namespaces | Restrict query to a single namespace |
 | `--context` | | current context | kubeconfig context to use |
 | `--kubeconfig` | | `~/.kube/config` | Path to kubeconfig |

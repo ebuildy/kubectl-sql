@@ -208,3 +208,15 @@ Feature: SQL queries against envtest cluster
     When I pipe "SELECT name FROM pods LIMIT 1" to kubectl-sql against the envtest cluster
     Then the exit code is 0
     And the output produces JQ "length <= 1 and .[0] | has(\"pods.name\")"
+
+  # Logging / verbosity
+  Scenario: -vv emits logs on stderr while stdout stays valid JSON
+    When I run kubectl-sql -vv with query "SELECT name FROM pods LIMIT 1" against the envtest cluster
+    Then the exit code is 0
+    And the output produces JQ "length <= 1"
+    And the stderr contains "query accepted"
+
+  Scenario: default run is quiet on stderr
+    When I run kubectl-sql "SELECT name FROM pods LIMIT 1" against the envtest cluster
+    Then the exit code is 0
+    And the stderr is empty

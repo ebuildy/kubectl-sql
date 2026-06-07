@@ -20,6 +20,8 @@ import (
 
 	"github.com/chzyer/readline"
 	"golang.org/x/term"
+
+	"github.com/ebuildy/kubectl-sql/internal/port/logger"
 )
 
 const prompt = "sql> "
@@ -56,8 +58,10 @@ func Run(ctx context.Context, cfg Config, w io.Writer) error {
 	}
 
 	if !cfg.IsTTY {
+		logger.FromContext(ctx).Info("repl started", logger.String("mode", "batch"))
 		return runBatch(ctx, cfg, w)
 	}
+	logger.FromContext(ctx).Info("repl started", logger.String("mode", "interactive"))
 	return runInteractive(ctx, cfg, w)
 }
 
@@ -73,6 +77,7 @@ func runBatch(ctx context.Context, cfg Config, w io.Writer) error {
 		if query == "" {
 			continue
 		}
+		logger.FromContext(ctx).Debug("repl executing query", logger.String("query", query))
 		if err := cfg.RunQuery(ctx, query, w); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		}
@@ -137,6 +142,7 @@ func runInteractive(ctx context.Context, cfg Config, w io.Writer) error {
 			comp.Prefetch(query)
 		}
 
+		logger.FromContext(ctx).Debug("repl executing query", logger.String("query", query))
 		if err := runOneInteractive(ctx, cfg, query, w); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		}

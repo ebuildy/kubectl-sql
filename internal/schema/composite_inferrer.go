@@ -2,8 +2,11 @@ package schema
 
 import (
 	"context"
+	"time"
 
 	k8sschema "k8s.io/apimachinery/pkg/runtime/schema"
+
+	"github.com/ebuildy/kubectl-sql/internal/port/logger"
 )
 
 // CompositeInferrer tries the primary inferrer and falls back to the secondary
@@ -24,16 +27,28 @@ func NewCompositeInferrer(primary, secondary SchemaInferrer) *CompositeInferrer 
 // InferFields calls the primary inferrer. If it returns nil or empty, falls back to secondary.
 // Otherwise merges secondary SubFields into primary object fields that have none.
 func (c *CompositeInferrer) InferFields(ctx context.Context, gvr k8sschema.GroupVersionResource) ([]Field, error) {
+	log := logger.FromContext(ctx)
+	log.Debug("inferring schema", logger.String("gvr", gvr.String()))
+	start := time.Now()
+	defer func() {
+		log.Debug("schema inferred",
+			logger.String("gvr", gvr.String()),
+			logger.Duration("elapsed", time.Since(start)))
+	}()
+
 	primary, err := c.primary.InferFields(ctx, gvr)
 	if err != nil || len(primary) == 0 {
+		log.Debug("schema source: sample inferrer (primary empty)", logger.String("gvr", gvr.String()))
 		return c.secondary.InferFields(ctx, gvr)
 	}
 
 	// Fetch secondary to fill SubFields for ref-only object fields.
 	secondary, _ := c.secondary.InferFields(ctx, gvr)
 	if len(secondary) == 0 {
+		log.Debug("schema source: openapi inferrer", logger.String("gvr", gvr.String()))
 		return primary, nil
 	}
+	log.Debug("schema source: openapi inferrer merged with sample subfields", logger.String("gvr", gvr.String()))
 
 	secMap := make(map[string]Field, len(secondary))
 	for _, f := range secondary {

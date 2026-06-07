@@ -8,6 +8,7 @@ GOLANGCI_LINT_VERSION := v2.12.2
 dev-deps:
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 	go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+	go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
 	setup-envtest use
 	go mod download
 
@@ -19,6 +20,9 @@ install: build
 
 lint:
 	golangci-lint run ./...
+
+cyclo:
+	gocyclo -top 20 -ignore "_test|Godeps|vendor/|external/" .
 
 test:
 	go test ./... -race -count=1

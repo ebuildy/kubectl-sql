@@ -10,6 +10,7 @@ import (
 	octoexec "github.com/cube2222/octosql/execution"
 	"github.com/cube2222/octosql/octosql"
 	"github.com/cube2222/octosql/physical"
+	"github.com/ebuildy/kubectl-sql/internal/port/logger"
 	internalschema "github.com/ebuildy/kubectl-sql/internal/schema"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -168,10 +169,13 @@ type kubernetesExecution struct {
 
 func (e *kubernetesExecution) Run(execCtx octoexec.ExecutionContext, produce octoexec.ProduceFn, _ octoexec.MetaSendFn) error {
 	var continueToken string
+	log := logger.FromContext(execCtx.Context)
 	ri := e.client.Resource(e.gvr)
 
+	page := 0
 	for {
 		opts := metav1.ListOptions{Limit: e.pageSize, Continue: continueToken}
+		pageStart := time.Now()
 
 		var items []map[string]interface{}
 		var nextToken string
@@ -195,6 +199,13 @@ func (e *kubernetesExecution) Run(execCtx octoexec.ExecutionContext, produce oct
 			}
 			nextToken = list.GetContinue()
 		}
+
+		log.Debug("listed resource page",
+			logger.String("resource", e.gvr.Resource),
+			logger.Int("page", page),
+			logger.Int("items", len(items)),
+			logger.Duration("elapsed", time.Since(pageStart)))
+		page++
 
 		for _, raw := range items {
 			row := make([]octosql.Value, len(e.fields))
