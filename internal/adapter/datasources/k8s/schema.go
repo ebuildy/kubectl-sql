@@ -105,27 +105,30 @@ func mergeSchemas(root *schema.Field, fields []schema.Field) error {
 		}
 		dst := &root.SubFields[idx]
 
-		if f.Type == dst.Type {
-			if dst.Type == schema.FieldTypeObject && len(f.SubFields) > 0 {
+		switch {
+		case dst.Type.IsObjectLike() && f.Type.IsObjectLike():
+			// Both object-like (struct or map). Keep the destination's KIND — it was
+			// set by an authoritative layer (default baseline / OpenAPI) and a later
+			// sample SHALL NOT downgrade a map to a struct or vice versa. Still merge
+			// the source's subfields/keys so e.g. metadata->labels->app resolves.
+			if len(f.SubFields) > 0 {
 				if err := mergeSchemas(dst, f.SubFields); err != nil {
 					return err
 				}
 			}
-			continue
-		}
-
-		// Types differ: prefer the object form so nested access keeps working.
-		switch {
-		case f.Type == schema.FieldTypeObject:
-			dst.Type = schema.FieldTypeObject
+		case f.Type == dst.Type:
+			// Equal leaf types: nothing to deepen.
+		case f.Type.IsObjectLike():
+			// Source is object-like, dest was a leaf: promote so nested access works.
+			dst.Type = f.Type
 			dst.SubFields = nil
 			if len(f.SubFields) > 0 {
 				if err := mergeSchemas(dst, f.SubFields); err != nil {
 					return err
 				}
 			}
-		case dst.Type == schema.FieldTypeObject:
-			// Destination already an object; keep it (don't downgrade to a leaf).
+		case dst.Type.IsObjectLike():
+			// Destination already object-like; keep it (don't downgrade to a leaf).
 		default:
 			return fmt.Errorf("field type mismatch for field '%s': dest type '%s', source type '%s'", f.Name, dst.Type, f.Type)
 		}

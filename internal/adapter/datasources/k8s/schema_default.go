@@ -19,13 +19,14 @@ func (c *defaultSchemaProvider) Provide(ctx context.Context, gvr k8sschema.Group
 	return []schema.Field{
 		{Name: "name", Type: schema.FieldTypeString},
 		{Name: "namespace", Type: schema.FieldTypeString},
-		{Name: "labels", Type: schema.FieldTypeObject},
-		{Name: "annotations", Type: schema.FieldTypeObject},
+		// labels/annotations are open-ended maps (per-object keys), not fixed structs.
+		{Name: "labels", Type: schema.FieldTypeMap},
+		{Name: "annotations", Type: schema.FieldTypeMap},
 		{Name: "metadata", Type: schema.FieldTypeObject, SubFields: []schema.Field{
 			{Name: "name", Type: schema.FieldTypeString},
 			{Name: "namespace", Type: schema.FieldTypeString},
-			{Name: "labels", Type: schema.FieldTypeObject},
-			{Name: "annotations", Type: schema.FieldTypeObject},
+			{Name: "labels", Type: schema.FieldTypeMap},
+			{Name: "annotations", Type: schema.FieldTypeMap},
 		}},
 		{Name: "spec", Type: schema.FieldTypeObject},
 		{Name: "status", Type: schema.FieldTypeObject},

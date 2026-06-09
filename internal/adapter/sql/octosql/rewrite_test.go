@@ -41,3 +41,24 @@ func TestRewriteDottedFields_Wildcard(t *testing.T) {
 		}
 	}
 }
+
+func TestRewriteDottedFields_MapKeyAccess(t *testing.T) {
+	cases := []struct {
+		input string
+		want  string
+	}{
+		// Bracketed string key → map_get; path dots become arrows.
+		{"SELECT labels['app'] FROM pods", "SELECT map_get(labels, 'app') FROM pods"},
+		{"SELECT metadata.labels['app'] FROM pods", "SELECT map_get(metadata->labels, 'app') FROM pods"},
+		{`SELECT metadata.labels["app"] FROM pods`, "SELECT map_get(metadata->labels, 'app') FROM pods"},
+		{"SELECT name FROM pods WHERE metadata.labels['app'] = 'nginx'", "SELECT name FROM pods WHERE map_get(metadata->labels, 'app') = 'nginx'"},
+		// Numeric index is NOT map access — stays the flat underscore form.
+		{"SELECT spec.volumes[0] FROM pods", "SELECT spec_volumes_0 FROM pods"},
+	}
+	for _, tc := range cases {
+		got := rewriteDottedFields(tc.input)
+		if got != tc.want {
+			t.Errorf("rewriteDottedFields(%q)\n  got:  %q\n  want: %q", tc.input, got, tc.want)
+		}
+	}
+}

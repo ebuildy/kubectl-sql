@@ -96,6 +96,13 @@ Feature: SQL queries against envtest cluster
     And the output does not contain "managedFields"
     And the output does not contain "resourceVersion"
 
+  Scenario: DESCRIBE TABLE pods types labels as a map (one column, not per-key)
+    When I run kubectl-sql "DESCRIBE TABLE pods" against the envtest cluster
+    Then the exit code is 0
+    And the output contains "labels"
+    And the output contains "map"
+    And the output does not contain "app"
+
   Scenario: DESCRIBE TABLE configmaps lists name column
     When I run kubectl-sql "DESCRIBE TABLE configmaps" against the envtest cluster
     Then the exit code is 0
@@ -156,30 +163,25 @@ Feature: SQL queries against envtest cluster
     Then the exit code is 0
     And the output produces JQ ".[0][\"pods.metadata\"] | has(\"resourceVersion\")"
 
-  Scenario: SELECT metadata->labels->app returns nginx (arrow notation)
-    When I run kubectl-sql "SELECT DISTINCT metadata->labels->app FROM pods" against the envtest cluster
+  Scenario: SELECT a map key with bracket notation returns nginx
+    When I run kubectl-sql "SELECT DISTINCT metadata.labels['app'] AS app FROM pods" against the envtest cluster
     Then the exit code is 0
-    And the output produces JQ "[.[].\"pods.metadata->labels->app\"] | any(. == \"nginx\")"
+    And the output produces JQ "[.[].app] | any(. == \"nginx\")"
 
-  Scenario: SELECT metadata.labels.app returns nginx (dot notation rewritten to arrow)
-    When I run kubectl-sql "SELECT DISTINCT metadata.labels.app FROM pods" against the envtest cluster
+  Scenario: WHERE on a map key with bracket notation filters correctly
+    When I run kubectl-sql "SELECT name FROM pods WHERE metadata.labels['app'] = 'nginx'" against the envtest cluster
     Then the exit code is 0
-    And the output produces JQ "[.[].\"pods.metadata->labels->app\"] | any(. == \"nginx\")"
+    And the output produces JQ "length > 0"
 
-  Scenario: SELECT metadata->labels returns labels struct
+  Scenario: SELECT metadata->labels returns the labels map as a JSON object
     When I run kubectl-sql "SELECT DISTINCT metadata->labels FROM pods LIMIT 1" against the envtest cluster
     Then the exit code is 0
     And the output produces JQ ".[0][\"pods.metadata->labels\"] | has(\"app\")"
 
-  Scenario: SELECT metadata.labels.* expands to labels struct
+  Scenario: SELECT metadata.labels.* returns the labels map as a JSON object
     When I run kubectl-sql "SELECT DISTINCT metadata.labels.* FROM pods LIMIT 1" against the envtest cluster
     Then the exit code is 0
     And the output produces JQ ".[0][\"pods.metadata->labels\"] | has(\"app\")"
-
-  Scenario: WHERE on nested struct field filters correctly
-    When I run kubectl-sql "SELECT name FROM pods WHERE metadata->labels->app = 'nginx'" against the envtest cluster
-    Then the exit code is 0
-    And the output produces JQ "length > 0"
 
   # Nginx pod with ConfigMap volume
   Scenario: spec.volumes[0].configMap shows nginx-config

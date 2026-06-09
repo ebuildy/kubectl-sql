@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/cube2222/octosql/execution"
@@ -147,7 +148,29 @@ func valueToNativeTyped(v octosql.Value, t octosql.Type) interface{} {
 		}
 		return out
 	}
+	// Map columns are carried as JSON-object strings. In JSON output, decode them so
+	// they render as real objects (e.g. labels -> {"app":"nginx"}) rather than an
+	// escaped string. Only well-formed JSON objects are decoded; ordinary string
+	// values (which never start with '{') are left untouched.
+	if v.TypeID == octosql.TypeIDString {
+		if obj, ok := decodeJSONObject(v.Str); ok {
+			return obj
+		}
+	}
 	return valueToNative(v)
+}
+
+// decodeJSONObject returns the decoded object when s is a JSON object string.
+func decodeJSONObject(s string) (map[string]interface{}, bool) {
+	t := strings.TrimSpace(s)
+	if len(t) == 0 || t[0] != '{' {
+		return nil, false
+	}
+	var obj map[string]interface{}
+	if err := json.Unmarshal([]byte(t), &obj); err != nil {
+		return nil, false
+	}
+	return obj, true
 }
 
 func renderCSV(w io.Writer, fields []string, rows [][]octosql.Value) error {

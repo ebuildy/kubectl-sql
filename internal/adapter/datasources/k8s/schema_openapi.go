@@ -142,6 +142,12 @@ func openAPISchemaToField(name string, s *spec.Schema) schema.Field {
 	return f
 }
 
+// isOpenAPIMap reports whether an object schema is an open-ended map[string]T:
+// it declares additionalProperties (a value schema) and no fixed properties.
+func isOpenAPIMap(s *spec.Schema) bool {
+	return s.Type[0] == "object" && s.AdditionalProperties != nil && len(s.Properties) == 0
+}
+
 func openAPITypeToFieldType(s *spec.Schema) schema.FieldType {
 	if s == nil {
 		return schema.FieldTypeString
@@ -150,11 +156,15 @@ func openAPITypeToFieldType(s *spec.Schema) schema.FieldType {
 		// Structural schemas (e.g. metadata -> $ref ObjectMeta) carry no explicit
 		// "type" but are objects. Detect them via $ref, nested properties, a map
 		// value (additionalProperties), or composition keywords.
-		if s.Ref.String() != "" || len(s.Properties) > 0 || s.AdditionalProperties != nil ||
-			len(s.AllOf) > 0 || len(s.OneOf) > 0 || len(s.AnyOf) > 0 {
+		switch {
+		case isOpenAPIMap(s):
+			return schema.FieldTypeMap
+		case s.Ref.String() != "" || len(s.Properties) > 0 ||
+			len(s.AllOf) > 0 || len(s.OneOf) > 0 || len(s.AnyOf) > 0:
 			return schema.FieldTypeObject
+		default:
+			return schema.FieldTypeString
 		}
-		return schema.FieldTypeString
 	}
 	switch s.Type[0] {
 	case "boolean":
@@ -164,6 +174,9 @@ func openAPITypeToFieldType(s *spec.Schema) schema.FieldType {
 	case "number":
 		return schema.FieldTypeFloat
 	case "object":
+		if isOpenAPIMap(s) {
+			return schema.FieldTypeMap
+		}
 		return schema.FieldTypeObject
 	case "array":
 		return schema.FieldTypeList

@@ -46,6 +46,12 @@ var dottedFieldRe = regexp.MustCompile(`\b([a-zA-Z_][a-zA-Z0-9_]*)(\.[a-zA-Z_][a
 // e.g. spec.volumes[0], spec.volumes[0].configMap, spec.containers[1].name
 var arrayIndexPathRe = regexp.MustCompile(`\b[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*|\[\d+\])*\[\d+\](?:\.[a-zA-Z_][a-zA-Z0-9_]*|\[\d+\])*`)
 
+// mapKeyAccessRe matches a (dotted) field path followed by a quoted bracket key,
+// e.g. labels['app'] or metadata.labels["app"]. Group 1 is the field path, group 2
+// the key. This is map access: the path resolves to a map column whose per-row key
+// is looked up — distinct from struct field access (->) and numeric array index.
+var mapKeyAccessRe = regexp.MustCompile(`\b([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\[\s*['"]([^'"]*)['"]\s*\]`)
+
 // rewriteDottedFields rewrites field path notation:
 //   - Pure dotted paths (no array indices): metadata.labels.app → metadata->labels->app
 //   - Paths with array indices: spec.volumes[0].configMap → spec_volumes_0_configMap
@@ -53,6 +59,20 @@ var arrayIndexPathRe = regexp.MustCompile(`\b[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_
 //
 // k8s.pods style table qualifiers are left untouched.
 func rewriteDottedFields(query string) string {
+	// Pass 0: map key access path['key'] → map_get(path, 'key'). The path's dots are
+	// converted to arrows so a nested map column (metadata.labels) resolves as a
+	// struct field first. Runs before the array/arrow passes so the inner path is
+	// rewritten consistently. Skips k8s.* table qualifiers.
+	query = mapKeyAccessRe.ReplaceAllStringFunc(query, func(match string) string {
+		m := mapKeyAccessRe.FindStringSubmatch(match)
+		path, key := m[1], m[2]
+		if strings.HasPrefix(path, "k8s.") {
+			return match
+		}
+		arrowPath := strings.ReplaceAll(path, ".", "->")
+		return "map_get(" + arrowPath + ", '" + key + "')"
+	})
+
 	// Pass 1: paths with array indices → underscore flat names (must run before arrow rewrite)
 	query = arrayIndexPathRe.ReplaceAllStringFunc(query, func(match string) string {
 		if strings.HasPrefix(match, "k8s.") || !strings.ContainsAny(match, "[") {
