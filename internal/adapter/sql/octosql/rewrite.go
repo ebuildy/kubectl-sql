@@ -14,7 +14,9 @@ import (
 //  2. Prefixes bare table names in FROM/JOIN clauses with "k8s." so octosql
 //     routes them to the KubernetesDatabase.
 func rewriteQuery(query string) string {
-	query = rewriteDottedFields(query)
+	// @TODO: this is a bit hacky and may have edge cases. A more robust solution would be to implement this as a custom sqlparser.SQLNode that performs the rewrites during parsing, but that requires more invasive changes to the parser and is more work. This regex-based approach should be sufficient for most queries and is easier to implement for now.
+	// @CLAUDE WTF you did
+	//query = rewriteDottedFields(query)
 
 	stmt, err := sqlparser.Parse(query)
 	if err != nil {

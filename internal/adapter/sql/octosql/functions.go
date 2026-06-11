@@ -13,10 +13,12 @@ import (
 // built-ins. These are merged into the engine's function map at query time.
 func FunctionMap() map[string]physical.FunctionDetails {
 	return map[string]physical.FunctionDetails{
-		"length":   lengthFunction(),
-		"contains": containsFunction(),
-		"keys":     keysFunction(),
-		"map_get":  mapGetFunction(),
+		"length":           lengthFunction(),
+		"contains":         containsFunction(),
+		"keys":             keysFunction(),
+		"map_get":          mapGetFunction(),
+		"map_contains_key": mapContainsKeyFunction(),
+		"map_values":       mapValuesFunction(),
 	}
 }
 
@@ -209,22 +211,88 @@ func mapGetFunction() physical.FunctionDetails {
 					if !ok {
 						return octosql.NewNull(), nil
 					}
-					val, exists := m[v[1].Str]
+
+					_, exists := m[v[1].Str]
 					if !exists {
 						return octosql.NewNull(), nil
 					}
-					if s, isStr := val.(string); isStr {
-						return octosql.NewString(s), nil
-					}
-					b, err := json.Marshal(val)
-					if err != nil {
-						return octosql.NewNull(), nil
-					}
-					return octosql.NewString(string(b)), nil
+					return octosql.NewString(jsonValueToString(m[v[1].Str])), nil
 				},
 			},
 		},
 	}
+}
+
+// mapContainsKeyFunction implements map_contains_key(map, key) -> bool: true if a
+// map column (a JSON-object string) has the given key. Returns false for a
+// non-map string.
+func mapContainsKeyFunction() physical.FunctionDetails {
+	return physical.FunctionDetails{
+		Descriptors: []physical.FunctionDescriptor{
+			{
+				Strict: true,
+				TypeFn: func(types []octosql.Type) (octosql.Type, bool) {
+					if len(types) != 2 || types[0].TypeID != octosql.TypeIDString || types[1].TypeID != octosql.TypeIDString {
+						return octosql.Type{}, false
+					}
+					return octosql.Boolean, true
+				},
+				Function: func(v []octosql.Value) (octosql.Value, error) {
+					m, ok := asJSONMap(v[0].Str)
+					if !ok {
+						return octosql.NewBoolean(false), nil
+					}
+					_, exists := m[v[1].Str]
+					return octosql.NewBoolean(exists), nil
+				},
+			},
+		},
+	}
+}
+
+// mapValuesFunction implements map_values(map) -> list of strings: the values of
+// a map column (a JSON-object string). Values are emitted in key order for
+// deterministic output (the map is logically unordered). Non-string values are
+// JSON-encoded. A non-map string yields an empty list.
+func mapValuesFunction() physical.FunctionDetails {
+	stringElem := octosql.String
+	listOfString := octosql.Type{
+		TypeID: octosql.TypeIDList,
+		List:   struct{ Element *octosql.Type }{Element: &stringElem},
+	}
+	return physical.FunctionDetails{
+		Descriptors: []physical.FunctionDescriptor{
+			{
+				Strict: true,
+				TypeFn: singleArgKindFn(octosql.TypeIDString, listOfString),
+				Function: func(v []octosql.Value) (octosql.Value, error) {
+					m, ok := asJSONMap(v[0].Str)
+					if !ok {
+						return octosql.NewList(nil), nil
+					}
+					ks := sortedKeys(m)
+					elems := make([]octosql.Value, len(ks))
+					for i, k := range ks {
+						elems[i] = octosql.NewString(jsonValueToString(m[k]))
+					}
+					return octosql.NewList(elems), nil
+				},
+			},
+		},
+	}
+}
+
+// jsonValueToString renders a decoded JSON value as a string: the raw text for
+// strings, otherwise its JSON encoding.
+func jsonValueToString(val interface{}) string {
+	if s, isStr := val.(string); isStr {
+		return s
+	}
+	b, err := json.Marshal(val)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 // valueToPlainString returns the bare string content of a value for substring

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -196,6 +197,20 @@ func (tc *testContext) theOutputProducesJQ(jqExpr string) error {
 		return fmt.Errorf("output is not valid JSON: %w\noutput:\n%s", err, tc.stdout)
 	}
 
+	jqExpr, err := strconv.Unquote(jqExpr)
+	if err != nil {
+		return fmt.Errorf("invalid JQ expression %q: %w", jqExpr, err)
+	}
+
+	//jqExpr = strings.TrimSpace(jqExpr)
+	//jqExpr = strings.Trim(jqExpr, "`")  // Allow backticks for better readability in feature files.
+	//jqExpr = strings.Trim(jqExpr, "\"") // Also trim quotes in case they're used instead of backticks.
+	//jqExpr = strings.ReplaceAll(jqExpr, "\\\"", "\"") // Unescape quotes if the expression is double-quoted.
+
+	//jqExpr = strings.Unquote(jqExpr) // Unquote any remaining escaped characters, e.g. \n, \t, etc.
+
+	fmt.Printf("Running JQ expression: %s\n", jqExpr)
+
 	q, err := gojq.Parse(jqExpr)
 	if err != nil {
 		return fmt.Errorf("invalid JQ expression %q: %w", jqExpr, err)
@@ -272,7 +287,7 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the exit code is not (\d+)$`, tc.theExitCodeIsNot)
 	sc.Step(`^the output contains "([^"]*)"$`, tc.theOutputContains)
 	sc.Step(`^the output does not contain "([^"]*)"$`, tc.theOutputDoesNotContain)
-	sc.Step(`^the output produces JQ "([^"]*)"$`, tc.theOutputProducesJQ)
+	sc.Step(`^the output produces JQ (.+)$`, tc.theOutputProducesJQ)
 	sc.Step(`^I run kubectl-sql --watch "([^"]*)" against the envtest cluster$`, tc.iRunKubectlSqlWithWatchFlag)
 	sc.Step(`^I pipe "([^"]*)" to kubectl-sql against the envtest cluster$`, tc.iPipeQueryToKubectlSql)
 	sc.Step(`^I run kubectl-sql ([\-v]+) with query "([^"]*)" against the envtest cluster$`, tc.iRunKubectlSqlVerbose)

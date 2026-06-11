@@ -102,7 +102,7 @@ func (e *engine) Execute(ctx context.Context, q portsql.Query, w io.Writer) erro
 
 	physicalPlan, mapping, err := typecheckNode(ctx, logicalPlan, env, logicalEnv)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %s\n", err)
+		log.Error("typecheck error", logger.Err(err))
 		return fmt.Errorf("octosql: typecheck: %w", err)
 	}
 
@@ -184,11 +184,11 @@ func (e *engine) Execute(ctx context.Context, q portsql.Query, w io.Writer) erro
 }
 
 func typecheckNode(ctx context.Context, node logical.Node, env physical.Environment, logicalEnv logical.Environment) (_ physical.Node, _ map[string]string, outErr error) {
-	defer func() {
-		if r := recover(); r != nil {
-			outErr = fmt.Errorf("typecheck error: %v", r)
-		}
-	}()
+	// defer func() {
+	// 	if r := recover(); r != nil {
+	// 		outErr = fmt.Errorf("typecheck error: %v", r)
+	// 	}
+	// }()
 	physicalNode, mapping := node.Typecheck(ctx, env, logicalEnv)
 	return physicalNode, mapping, nil
 }

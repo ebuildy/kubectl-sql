@@ -145,7 +145,7 @@ func openAPISchemaToField(name string, s *spec.Schema) schema.Field {
 // isOpenAPIMap reports whether an object schema is an open-ended map[string]T:
 // it declares additionalProperties (a value schema) and no fixed properties.
 func isOpenAPIMap(s *spec.Schema) bool {
-	return s.Type[0] == "object" && s.AdditionalProperties != nil && len(s.Properties) == 0
+	return s.AdditionalProperties != nil && len(s.Properties) == 0
 }
 
 func openAPITypeToFieldType(s *spec.Schema) schema.FieldType {
