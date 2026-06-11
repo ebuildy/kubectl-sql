@@ -3,8 +3,10 @@
 [![Go version](https://img.shields.io/badge/go-1.26+-00ADD8.svg)](https://golang.org)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Go Report Card](https://goreportcard.com/badge/github.com/ebuildy/kubectl-sql)](https://goreportcard.com/report/github.com/ebuildy/kubectl-sql)
-[![CI](https://github.com/ebuildy/kubectl-sql/actions/workflows/ci.yml/badge.svg)](https://github.com/ebuildy/kubectl-sql/actions)
-[![Release](https://img.shields.io/github/v/release/ebuildy/kubectl-sql?color=6366F1)](https://github.com/ebuildy/kubectl-sql/releases)
+[![CI](https://github.com/ebuildy/kubectl-sql/actions/workflows/ci.yml/badge.svg)](https://github.com/ebuildy/kubectl-sql/actions/workflows/ci.yml)
+[![Release](https://github.com/ebuildy/kubectl-sql/actions/workflows/release.yml/badge.svg)](https://github.com/ebuildy/kubectl-sql/actions/workflows/release.yml)
+[![Latest release](https://img.shields.io/github/v/release/ebuildy/kubectl-sql?color=6366F1)](https://github.com/ebuildy/kubectl-sql/releases)
+[![Downloads](https://img.shields.io/github/downloads/ebuildy/kubectl-sql/total)](https://github.com/ebuildy/kubectl-sql/releases)
 [![Go Reference](https://pkg.go.dev/badge/github.com/ebuildy/kubectl-sql.svg)](https://pkg.go.dev/github.com/ebuildy/kubectl-sql)
 
 > Query any Kubernetes resource using SQL — directly from your terminal.
@@ -27,6 +29,15 @@ kubectl sql "SELECT name, namespace, status->phase FROM pods WHERE status->phase
 - **Introspection** — `SHOW TABLES` and `DESCRIBE TABLE <resource>`
 
 ## Installation
+
+### From release binaries
+
+Download the archive for your platform from the [releases page](https://github.com/ebuildy/kubectl-sql/releases) (Linux amd64, macOS amd64/arm64), then:
+
+```bash
+tar -xzf kubectl-sql_*.tar.gz
+mv kubectl-sql ~/bin/   # or anywhere on your PATH
+```
 
 ### From source
 
@@ -245,6 +256,24 @@ make dev-deps
 
 > [!NOTE]
 > Integration and e2e tests use [controller-runtime envtest](https://pkg.go.dev/sigs.k8s.io/controller-runtime/pkg/envtest) — no real cluster needed. Run `make dev-deps` first to download the required binaries.
+
+## Releasing
+
+Releases are fully automated with [GoReleaser](https://goreleaser.com/) via the [Release workflow](.github/workflows/release.yml). Pushing a tag matching `v*` triggers it:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The workflow then:
+
+1. Builds static binaries (`CGO_ENABLED=0`) for **linux/amd64**, **darwin/amd64**, and **darwin/arm64**
+2. Packages each as a `tar.gz` archive with the `LICENSE` and `README.md`
+3. Generates a `checksums.txt` (SHA-256) for all archives
+4. Creates a GitHub release with a changelog from commit messages (`docs:`, `test:`, and `chore:` commits excluded)
+
+Tags with a prerelease suffix (e.g. `v0.2.0-rc1`) are automatically marked as prereleases. Build targets and packaging are configured in [.goreleaser.yaml](.goreleaser.yaml); validate changes locally with `goreleaser check` or do a full dry run with `goreleaser release --snapshot --clean`.
 
 ## Documentation
 
