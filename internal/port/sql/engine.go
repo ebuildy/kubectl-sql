@@ -22,8 +22,15 @@ type Engine interface {
 
 // Config holds configuration options for the SQL engine.
 type Config struct {
-	Output    string // "table" | "json" | "csv"
-	Namespace string
-	PageSize  int
-	NoColor   bool
+	Output        string // "table" | "json" | "csv"
+	Namespace     string
+	PageSize      int
+	NoColor       bool
+	DisableBeauty bool // render struct cells as compact uncolored JSON
+}
+
+// ColorEnabled reports whether ANSI coloring should be applied, given whether
+// the final output destination is a terminal.
+func (c Config) ColorEnabled(isTTY bool) bool {
+	return isTTY && !c.NoColor && !c.DisableBeauty
 }

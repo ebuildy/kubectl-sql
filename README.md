@@ -108,6 +108,7 @@ kubectl-sql -vv --output json "SELECT name FROM pods" 2>debug.log | jq .
 | `--explain` | | `false` | Print the execution plan without running the query |
 | `--dry-run` | | `false` | Validate SQL without hitting the API |
 | `--no-color` | | `false` | Disable ANSI colors |
+| `--disable-beauty` | | `false` | Render struct values as compact single-line JSON (no pretty-printing or key colors) |
 
 ### Exit codes
 
