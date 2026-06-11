@@ -42,16 +42,18 @@ Example:
 		timeout, _ := cmd.Flags().GetDuration("timeout")
 		outputFormat, _ := cmd.Flags().GetString("output")
 		noColor, _ := cmd.Flags().GetBool("no-color")
+		disableBeauty, _ := cmd.Flags().GetBool("disable-beauty")
 
 		config := api.Config{
-			Kubeconfig:  kubeconfig,
-			KubeContext: kubeContext,
-			Namespace:   namespace,
-			PageSize:    pageSize,
-			Output:      outputFormat,
-			Timeout:     timeout,
-			NoColor:     noColor,
-			Out:         os.Stdout,
+			Kubeconfig:    kubeconfig,
+			KubeContext:   kubeContext,
+			Namespace:     namespace,
+			PageSize:      pageSize,
+			Output:        outputFormat,
+			Timeout:       timeout,
+			NoColor:       noColor,
+			DisableBeauty: disableBeauty,
+			Out:           os.Stdout,
 		}
 
 		queryCommand, err := commandQuery.NewQueryCommand(config)
@@ -94,6 +96,7 @@ func init() {
 	rootCmd.PersistentFlags().Int("page-size", 500, "Kubernetes LIST page size")
 	rootCmd.PersistentFlags().Duration("timeout", 30*time.Second, "Per-request timeout")
 	rootCmd.PersistentFlags().Bool("no-color", false, "Disable ANSI colors")
+	rootCmd.PersistentFlags().Bool("disable-beauty", false, "Render struct values as compact single-line JSON without pretty-printing or key colors")
 	rootCmd.PersistentFlags().Bool("explain", false, "Print execution plan without running query")
 	rootCmd.PersistentFlags().Bool("dry-run", false, "Validate SQL without hitting the API")
 	rootCmd.PersistentFlags().BoolP("watch", "w", false, "Stream live resource changes via the Kubernetes WATCH API")

@@ -21,6 +21,7 @@ import (
 	"github.com/cube2222/octosql/parser/sqlparser"
 	"github.com/cube2222/octosql/physical"
 	"github.com/cube2222/octosql/table_valued_functions"
+	"golang.org/x/term"
 
 	k8sport "github.com/ebuildy/kubectl-sql/internal/port/datasources/k8s"
 	"github.com/ebuildy/kubectl-sql/internal/port/logger"
@@ -179,6 +180,8 @@ func (e *engine) Execute(ctx context.Context, q portsql.Query, w io.Writer) erro
 			OrderDirections: logical.DirectionsToMultipliers(outputOptions.OrderByDirections),
 			Schema:          outSchema,
 			Writer:          w,
+			Pretty:          !e.config.DisableBeauty,
+			ColorKeys:       e.config.ColorEnabled(term.IsTerminal(int(os.Stdout.Fd()))),
 		},
 	)
 }

@@ -77,10 +77,11 @@ func (c *QueryCommand) RunWithWriter(ctx context.Context, query string, w io.Wri
 	}
 
 	config := sqlPort.Config{
-		Output:    c.config.Output,
-		Namespace: c.config.Namespace,
-		PageSize:  c.config.PageSize,
-		NoColor:   c.config.NoColor,
+		Output:        c.config.Output,
+		Namespace:     c.config.Namespace,
+		PageSize:      c.config.PageSize,
+		NoColor:       c.config.NoColor,
+		DisableBeauty: c.config.DisableBeauty,
 	}
 	eng := octosqlAdapter.New(config, c.k8s)
 	execErr := eng.Execute(ctx, sqlPort.Query{
