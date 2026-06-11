@@ -47,14 +47,17 @@ var fromRe = regexp.MustCompile(`(?i)\bfrom\s+(?:k8s\.)?([A-Za-z_][A-Za-z0-9_]*)
 type cliCompletionSource struct {
 	ctx         context.Context
 	ds          k8sport.DataSource
+	functions   []string // sorted SQL function names (lowercase) offered in expression positions
 	mu          sync.Mutex
 	columnCache map[string][]string // table -> columns (session cache)
 }
 
 // NewCompletionSource builds a completion source, returning nil if the cluster
-// connection fails (completion is then disabled).
-func NewShellCompletion(ctx context.Context, dataSource k8sport.DataSource) shellCompletionPort.ShellCompletionRunner {
-	return &cliCompletionSource{ctx: ctx, ds: dataSource, columnCache: make(map[string][]string)}
+// connection fails (completion is then disabled). functionNames is the set of
+// SQL function names (e.g. "map_get", "upper") offered alongside keywords and
+// columns in expression positions.
+func NewShellCompletion(ctx context.Context, dataSource k8sport.DataSource, functionNames []string) shellCompletionPort.ShellCompletionRunner {
+	return &cliCompletionSource{ctx: ctx, ds: dataSource, functions: functionNames, columnCache: make(map[string][]string)}
 }
 
 // Tables returns queryable resource names via the port.
@@ -135,6 +138,11 @@ func (c *cliCompletionSource) candidates(prefixText, fullLine, word string) []st
 	var out []string
 	// Keywords (case preserved relative to the typed word).
 	out = append(out, matchKeywords(word)...)
+	// Function names (always lowercase), e.g. map_get, upper. Suffixed with "("
+	// since a function name is always followed by its argument list.
+	for _, fn := range matchPrefix(c.functions, lowerWord) {
+		out = append(out, fn+"(")
+	}
 	// Columns for the FROM table, if one is resolvable from the whole line.
 	if table := tableInLine(fullLine); table != "" {
 		out = append(out, matchPrefix(c.columns(table), lowerWord)...)

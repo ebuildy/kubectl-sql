@@ -9,6 +9,7 @@ import (
 	k8sAdapter "github.com/ebuildy/kubectl-sql/internal/adapter/datasources/k8s"
 	shellCompletionAdapter "github.com/ebuildy/kubectl-sql/internal/adapter/shell/completion"
 	shellAdapter "github.com/ebuildy/kubectl-sql/internal/adapter/shell/readline"
+	octosqlAdapter "github.com/ebuildy/kubectl-sql/internal/adapter/sql/octosql"
 	commandQuery "github.com/ebuildy/kubectl-sql/internal/domain/commands/query"
 	"github.com/ebuildy/kubectl-sql/internal/port/api"
 	dataSourcePort "github.com/ebuildy/kubectl-sql/internal/port/datasources/k8s"
@@ -58,7 +59,7 @@ func (r *ReplCommand) Run(ctx context.Context, interactive bool) error {
 	// best-effort: if the cluster is unreachable, completion is simply disabled
 	// rather than aborting the REPL.
 	if interactive {
-		if src := shellCompletionAdapter.NewShellCompletion(ctx, r.dataSource); src != nil {
+		if src := shellCompletionAdapter.NewShellCompletion(ctx, r.dataSource, octosqlAdapter.FunctionNames()); src != nil {
 			shellInstance.Completion = src
 		}
 	}

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Defines the interactive Read-Eval-Print-Loop entered when `kubectl-sql` is run with no positional query: the prompt loop, query execution and error handling, exit and help commands, flag inheritance, session history, non-TTY batch fallback, and Tab autocomplete for SQL keywords, table names, and column names.
+Defines the interactive Read-Eval-Print-Loop entered when `kubectl-sql` is run with no positional query: the prompt loop, query execution and error handling, exit and help commands, flag inheritance, session history, non-TTY batch fallback, and Tab autocomplete for SQL keywords, table names, column names, and function names.
 
 ---
 
@@ -134,6 +134,25 @@ When the cursor is in a position where a table name is expected — immediately 
 #### Scenario: Table completion source matches SHOW TABLES
 - **WHEN** the completer lists table candidates
 - **THEN** the candidate set is the same set of resource names produced by `SHOW TABLES`
+
+### Requirement: Tab completes function names
+In the interactive prompt, pressing Tab SHALL offer completions for SQL function names — both octosql's built-in functions (e.g. `upper`, `lower`, `coalesce`) and kubectl-sql's custom functions (`length`, `contains`, `keys`, `map_get`, `map_contains_key`, `map_values`). Function names SHALL be offered alongside keyword and column candidates wherever an expression is expected (e.g. after `SELECT`, `WHERE`, or inside argument lists), matched case-insensitively against the typed prefix. Function names are stored and matched in lowercase, and SHALL participate in the same alphabetical ordering and 50-entry cap as other candidates. Each function completion SHALL be suffixed with `(`, since a function name is always followed by its argument list.
+
+#### Scenario: Custom function name completes
+- **WHEN** the user types `SELECT map_g` and presses Tab
+- **THEN** the completer offers `map_get(`
+
+#### Scenario: Built-in octosql function name completes
+- **WHEN** the user types `SELECT upp` and presses Tab
+- **THEN** the completer offers `upper(`
+
+#### Scenario: Function names mix with keyword and column candidates
+- **WHEN** the user types `SELECT l` against a query whose `FROM` clause is `pods` and presses Tab
+- **THEN** the completer offers a combined, alphabetically-sorted list that may include the `length` function, the `LIKE`/`LIMIT` keywords, and any matching column names (e.g. `labels`)
+
+#### Scenario: Function name completion is case-insensitive
+- **WHEN** the user types `MAP_C` and presses Tab
+- **THEN** the completer offers a completion for `map_contains_key`, matched case-insensitively against the typed prefix
 
 ### Requirement: Tab completes column names for the FROM table
 When a query contains a resolvable `FROM <table>` and the cursor is positioned where a column reference is expected (e.g. after `SELECT` or `WHERE`), pressing Tab SHALL offer column-name completions inferred from that table's schema. The table's schema SHALL be prefetched and cached for the session when the table first appears in a completed `FROM` clause, so subsequent column completions do not block on a fresh inference.

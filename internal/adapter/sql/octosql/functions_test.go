@@ -1,6 +1,7 @@
 package octosql
 
 import (
+	"sort"
 	"testing"
 	"time"
 
@@ -69,6 +70,22 @@ func TestFunctionMap_RegistersLength(t *testing.T) {
 	if _, ok := m["length"]; !ok {
 		t.Fatal("FunctionMap missing 'length'")
 	}
+}
+
+func TestFunctionNames(t *testing.T) {
+	names := FunctionNames()
+
+	for _, want := range []string{"map_get", "map_contains_key", "map_values", "length", "contains", "keys", "upper", "lower"} {
+		assert.Contains(t, names, want)
+	}
+
+	// Operators and multi-word keyword phrases from octosql's function map are
+	// not callable as name(...) and must be excluded from completion candidates.
+	for _, notWant := range []string{"+", "-", "*", "/", "<", "<=", ">", ">=", "=", "!=", "~", "~*", "[]", "is null", "is not null", "not in"} {
+		assert.NotContains(t, names, notWant)
+	}
+
+	assert.True(t, sort.StringsAreSorted(names))
 }
 
 func TestLength_List(t *testing.T) {

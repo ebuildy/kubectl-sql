@@ -87,7 +87,7 @@ func doOrdered(c shellCompletionPort.ShellCompletionRunner, line string, pos int
 }
 
 func TestComplete_KeywordCasePreserved(t *testing.T) {
-	c := NewShellCompletion(context.Background(), &fakeDataSource{})
+	c := NewShellCompletion(context.Background(), &fakeDataSource{}, nil)
 
 	lower := doString(c, "sel")
 	if !contains(lower, "select") {
@@ -109,7 +109,7 @@ func TestComplete_CappedAndSorted(t *testing.T) {
 	for i := 0; i < maxSuggestions+10; i++ {
 		tables = append(tables, fmt.Sprintf("res%03d", i))
 	}
-	c := NewShellCompletion(context.Background(), &fakeDataSource{tables: tables})
+	c := NewShellCompletion(context.Background(), &fakeDataSource{tables: tables}, nil)
 
 	got := doOrdered(c, "SELECT name FROM res", len("SELECT name FROM res"))
 	if len(got) > maxSuggestions {
@@ -125,7 +125,7 @@ func TestComplete_CappedAndSorted(t *testing.T) {
 }
 
 func TestComplete_JoinKeywords(t *testing.T) {
-	c := NewShellCompletion(context.Background(), &fakeDataSource{})
+	c := NewShellCompletion(context.Background(), &fakeDataSource{}, nil)
 
 	for _, tc := range []struct{ typed, want string }{
 		{"inner", "inner join"},
@@ -142,7 +142,7 @@ func TestComplete_JoinKeywords(t *testing.T) {
 }
 
 func TestComplete_StatementStarters(t *testing.T) {
-	c := NewShellCompletion(context.Background(), &fakeDataSource{})
+	c := NewShellCompletion(context.Background(), &fakeDataSource{}, nil)
 
 	for _, tc := range []struct{ typed, want string }{
 		{"sh", "show"},
@@ -158,7 +158,7 @@ func TestComplete_StatementStarters(t *testing.T) {
 }
 
 func TestComplete_EmptyLineOffersStartersUppercase(t *testing.T) {
-	c := NewShellCompletion(context.Background(), &fakeDataSource{})
+	c := NewShellCompletion(context.Background(), &fakeDataSource{}, nil)
 	got := doString(c, "")
 	for _, kw := range []string{"SELECT", "SHOW", "DESCRIBE", "WITH"} {
 		if !contains(got, kw) {
@@ -168,7 +168,7 @@ func TestComplete_EmptyLineOffersStartersUppercase(t *testing.T) {
 }
 
 func TestComplete_NoWriteStatements(t *testing.T) {
-	c := NewShellCompletion(context.Background(), &fakeDataSource{})
+	c := NewShellCompletion(context.Background(), &fakeDataSource{}, nil)
 	if got := doString(c, "up"); contains(got, "update") || contains(got, "UPDATE") {
 		t.Errorf("UPDATE must not be offered (read-only): %v", got)
 	}
@@ -177,8 +177,55 @@ func TestComplete_NoWriteStatements(t *testing.T) {
 	}
 }
 
+func TestComplete_FunctionNames(t *testing.T) {
+	functions := []string{"length", "contains", "keys", "map_get", "map_contains_key", "map_values", "upper", "lower"}
+	c := NewShellCompletion(context.Background(), &fakeDataSource{}, functions)
+
+	got := doString(c, "SELECT map_g")
+	if !contains(got, "map_get(") {
+		t.Errorf("custom function: got %v, want to contain %q", got, "map_get(")
+	}
+
+	got = doString(c, "SELECT upp")
+	if !contains(got, "upper(") {
+		t.Errorf("built-in function: got %v, want to contain %q", got, "upper(")
+	}
+
+	// Case-insensitive match: uppercase prefix "MAP_C" still matches "map_contains_key(".
+	suffixes, length := c.Do([]rune("SELECT MAP_C"), len("SELECT MAP_C"))
+	if length != len("MAP_C") {
+		t.Fatalf("expected matched length %d, got %d", len("MAP_C"), length)
+	}
+	found := false
+	for _, s := range suffixes {
+		if "map_c"+string(s) == "map_contains_key(" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("uppercase prefix MAP_C: got suffixes %v, want one completing to %q", suffixes, "map_contains_key(")
+	}
+}
+
+func TestComplete_FunctionNamesMixWithColumnsAndKeywords(t *testing.T) {
+	functions := []string{"length"}
+	columns := map[string][]string{"pods": {"labels", "name"}}
+	c := NewShellCompletion(context.Background(), &fakeDataSource{columns: columns}, functions)
+
+	got := doCursor(c, "SELECT l| FROM pods")
+	if !contains(got, "length(") {
+		t.Errorf("expected function 'length(' in candidates: %v", got)
+	}
+	if !contains(got, "labels") {
+		t.Errorf("expected column 'labels' in candidates: %v", got)
+	}
+	if !contains(got, "like") && !contains(got, "limit") {
+		t.Errorf("expected keyword 'like' or 'limit' in candidates: %v", got)
+	}
+}
+
 func TestComplete_TableAfterFrom(t *testing.T) {
-	c := NewShellCompletion(context.Background(), &fakeDataSource{tables: []string{"pods", "podtemplates", "nodes"}})
+	c := NewShellCompletion(context.Background(), &fakeDataSource{tables: []string{"pods", "podtemplates", "nodes"}}, nil)
 
 	got := doString(c, "SELECT name FROM po")
 	if !contains(got, "pods") || !contains(got, "podtemplates") {
@@ -190,7 +237,7 @@ func TestComplete_TableAfterFrom(t *testing.T) {
 }
 
 func TestComplete_TableAfterDescribeTable(t *testing.T) {
-	c := NewShellCompletion(context.Background(), &fakeDataSource{tables: []string{"pods", "podtemplates", "nodes"}})
+	c := NewShellCompletion(context.Background(), &fakeDataSource{tables: []string{"pods", "podtemplates", "nodes"}}, nil)
 
 	got := doString(c, "DESCRIBE TABLE po")
 	if !contains(got, "pods") || !contains(got, "podtemplates") {
@@ -214,7 +261,7 @@ func TestComplete_TableAfterDescribeTable(t *testing.T) {
 func TestComplete_ColumnFromTable(t *testing.T) {
 	columns := map[string][]string{"pods": {"name", "namespace", "status", "spec"}}
 
-	c := NewShellCompletion(context.Background(), &fakeDataSource{columns: columns})
+	c := NewShellCompletion(context.Background(), &fakeDataSource{columns: columns}, nil)
 
 	got := doCursor(c, "SELECT sta| FROM pods")
 
@@ -223,7 +270,7 @@ func TestComplete_ColumnFromTable(t *testing.T) {
 }
 
 func TestComplete_UnknownTableNoColumns(t *testing.T) {
-	c := NewShellCompletion(context.Background(), &fakeDataSource{columns: map[string][]string{}})
+	c := NewShellCompletion(context.Background(), &fakeDataSource{columns: map[string][]string{}}, nil)
 
 	// No FROM clause -> no column candidates (keywords only).
 	got := doString(c, "SELECT sta")
@@ -242,7 +289,7 @@ func TestComplete_UnknownTableNoColumns(t *testing.T) {
 
 func TestComplete_ColumnCaching(t *testing.T) {
 	src := &fakeDataSource{columns: map[string][]string{"pods": {"status"}}}
-	c := NewShellCompletion(context.Background(), src)
+	c := NewShellCompletion(context.Background(), src, nil)
 
 	_ = doCursor(c, "SELECT sta| FROM pods")
 	_ = doCursor(c, "SELECT sta| FROM pods")

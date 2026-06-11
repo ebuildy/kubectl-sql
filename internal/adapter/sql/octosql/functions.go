@@ -1,9 +1,11 @@
 package octosql
 
 import (
+	"regexp"
 	"sort"
 	"strings"
 
+	octofunctions "github.com/cube2222/octosql/functions"
 	"github.com/cube2222/octosql/octosql"
 	"github.com/cube2222/octosql/physical"
 )
@@ -19,6 +21,32 @@ func FunctionMap() map[string]physical.FunctionDetails {
 		"map_contains_key": mapContainsKeyFunction(),
 		"map_values":       mapValuesFunction(),
 	}
+}
+
+// identifierRe matches names that are callable as identifier(...): a single
+// word of letters, digits, and underscores, not starting with a digit. It
+// excludes octosql's operator and keyword-phrase entries (e.g. "+", "<=",
+// "is not null", "not in"), which are registered in the same function map but
+// are not written as func(...) calls.
+var identifierRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// FunctionNames returns the sorted list of SQL function names available to
+// queries that are callable as name(...): octosql's built-ins plus
+// kubectl-sql's custom functions, excluding operators and keyword-phrase
+// entries (e.g. "+", "is not null"). It is used by shell Tab completion to
+// suggest function names without that package importing octosql directly.
+func FunctionNames() []string {
+	names := make([]string, 0)
+	for name := range octofunctions.FunctionMap() {
+		if identifierRe.MatchString(name) {
+			names = append(names, name)
+		}
+	}
+	for name := range FunctionMap() {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // isMapListType reports whether t is the runtime type of a FieldTypeMap column: a
