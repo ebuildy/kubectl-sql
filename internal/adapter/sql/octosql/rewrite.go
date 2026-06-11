@@ -1,6 +1,7 @@
 package octosql
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -15,8 +16,10 @@ import (
 //     routes them to the KubernetesDatabase.
 func rewriteQuery(query string) string {
 	// @TODO: this is a bit hacky and may have edge cases. A more robust solution would be to implement this as a custom sqlparser.SQLNode that performs the rewrites during parsing, but that requires more invasive changes to the parser and is more work. This regex-based approach should be sufficient for most queries and is easier to implement for now.
-	// @CLAUDE WTF you did
-	//query = rewriteDottedFields(query)
+	// Must run before sqlparser.Parse: sqlparser accepts field['key'] syntax but
+	// cannot round-trip it through String(), so it must be rewritten to
+	// map_get(field, 'key') first.
+	query = rewriteDottedFields(query)
 
 	stmt, err := sqlparser.Parse(query)
 	if err != nil {
@@ -54,17 +57,25 @@ var arrayIndexPathRe = regexp.MustCompile(`\b[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_
 // is looked up — distinct from struct field access (->) and numeric array index.
 var mapKeyAccessRe = regexp.MustCompile(`\b([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\[\s*['"]([^'"]*)['"]\s*\]`)
 
+// stringLiteralRe matches single- or double-quoted SQL string literals (no
+// embedded escaped quotes), e.g. 'config.json' or "app". Used to protect literal
+// contents from the dotted-field rewrites below — a key like 'config.json' must
+// not be rewritten to 'config->json'.
+var stringLiteralRe = regexp.MustCompile(`'[^']*'|"[^"]*"`)
+
 // rewriteDottedFields rewrites field path notation:
 //   - Pure dotted paths (no array indices): metadata.labels.app → metadata->labels->app
 //   - Paths with array indices: spec.volumes[0].configMap → spec_volumes_0_configMap
 //   - Wildcard suffix stripped first: metadata.labels.* → metadata->labels
 //
-// k8s.pods style table qualifiers are left untouched.
+// k8s.pods style table qualifiers are left untouched. String literals (e.g.
+// 'config.json') are protected from these rewrites.
 func rewriteDottedFields(query string) string {
 	// Pass 0: map key access path['key'] → map_get(path, 'key'). The path's dots are
 	// converted to arrows so a nested map column (metadata.labels) resolves as a
 	// struct field first. Runs before the array/arrow passes so the inner path is
-	// rewritten consistently. Skips k8s.* table qualifiers.
+	// rewritten consistently. Skips k8s.* table qualifiers. Must run before string
+	// literal protection: it needs the quotes around the bracket key to match.
 	query = mapKeyAccessRe.ReplaceAllStringFunc(query, func(match string) string {
 		m := mapKeyAccessRe.FindStringSubmatch(match)
 		path, key := m[1], m[2]
@@ -73,6 +84,14 @@ func rewriteDottedFields(query string) string {
 		}
 		arrowPath := strings.ReplaceAll(path, ".", "->")
 		return "map_get(" + arrowPath + ", '" + key + "')"
+	})
+
+	// Protect string literal contents (e.g. 'config.json') from the dotted-field
+	// regexes below by replacing them with placeholders, restored at the end.
+	var literals []string
+	query = stringLiteralRe.ReplaceAllStringFunc(query, func(match string) string {
+		literals = append(literals, match)
+		return fmt.Sprintf("\x00%d\x00", len(literals)-1)
 	})
 
 	// Pass 1: paths with array indices → underscore flat names (must run before arrow rewrite)
@@ -97,5 +116,10 @@ func rewriteDottedFields(query string) string {
 		}
 		return strings.ReplaceAll(match, ".", "->")
 	})
+
+	// Restore protected string literals.
+	for i, lit := range literals {
+		query = strings.ReplaceAll(query, fmt.Sprintf("\x00%d\x00", i), lit)
+	}
 	return query
 }

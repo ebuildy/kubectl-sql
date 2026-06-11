@@ -103,11 +103,15 @@ func fieldToOctoType(f internalschema.Field) octosql.Type {
 	case internalschema.FieldTypeMap:
 		// An open-ended map[string]T has per-row varying keys. octosql has no map type
 		// and its Struct is a FIXED, positional shape (names live in the type, not the
-		// value), so a struct cannot represent a dynamic map. We carry the map as a
-		// JSON-object string per row; key access is map['key'] (rewritten to map_get),
-		// and keys()/contains()/length() parse the JSON. The renderer decodes map
-		// columns back into JSON objects (see Options.MapColumns).
-		return octosql.String
+		// value), so a struct cannot represent a dynamic map. We carry the map as a flat
+		// List<Any> of alternating key/value elements ([k1, v1, k2, v2, ...]), each value
+		// in its native octosql type; key access is map['key'] (rewritten to map_get),
+		// and keys()/contains()/length() operate on the flat list. The renderer decodes
+		// map columns back into JSON objects.
+		return octosql.Type{
+			TypeID: octosql.TypeIDList,
+			List:   struct{ Element *octosql.Type }{Element: &octosql.Any},
+		}
 	case internalschema.FieldTypeObject:
 		// A fixed-schema struct materializes as an octosql Struct over its known
 		// subfields, so -> access works.
@@ -228,19 +232,22 @@ func resolveFieldValue(raw map[string]interface{}, field internalschema.Field) o
 	return anyToOctoValue(ResolveField(raw, resolvePath))
 }
 
-// anyToMapValue encodes a map[string]T value as a canonical JSON-object string,
-// the runtime representation of a FieldTypeMap column. A nil/non-map value yields
-// the JSON null-equivalent empty object so the column type stays a (JSON) string.
+// anyToMapValue encodes a map[string]T value as a flat List<Any> of alternating
+// key/value elements ([k1, v1, k2, v2, ...]), the runtime representation of a
+// FieldTypeMap column. Keys are sorted for deterministic output. Each value is
+// converted via anyToOctoValue, preserving its native octosql type. A nil/non-map
+// value yields an empty list so the column type stays List<Any>.
 func anyToMapValue(v interface{}) octosql.Value {
 	m, ok := v.(map[string]interface{})
 	if !ok || m == nil {
-		return octosql.NewString("{}")
+		return octosql.NewList(nil)
 	}
-	b, err := json.Marshal(m)
-	if err != nil {
-		return octosql.NewString("{}")
+	keys := sortedKeys(m)
+	elems := make([]octosql.Value, 0, len(keys)*2)
+	for _, k := range keys {
+		elems = append(elems, octosql.NewString(k), anyToOctoValue(m[k]))
 	}
-	return octosql.NewString(string(b))
+	return octosql.NewList(elems)
 }
 
 // anyToListValue builds an octosql List value whose elements are the JSON-encoded

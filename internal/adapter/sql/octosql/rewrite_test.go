@@ -62,3 +62,21 @@ func TestRewriteDottedFields_MapKeyAccess(t *testing.T) {
 		}
 	}
 }
+
+func TestRewriteDottedFields_StringLiteralsUntouched(t *testing.T) {
+	cases := []struct {
+		input string
+		want  string
+	}{
+		// A dot inside a string literal (e.g. a map_get key) must not be rewritten
+		// to an arrow — 'config.json' is a literal key, not a field path.
+		{"SELECT map_get(data, 'config.json') AS val FROM cm", "SELECT map_get(data, 'config.json') AS val FROM cm"},
+		{"SELECT name FROM pods WHERE metadata.labels['app'] = 'nginx.io'", "SELECT name FROM pods WHERE map_get(metadata->labels, 'app') = 'nginx.io'"},
+	}
+	for _, tc := range cases {
+		got := rewriteDottedFields(tc.input)
+		if got != tc.want {
+			t.Errorf("rewriteDottedFields(%q)\n  got:  %q\n  want: %q", tc.input, got, tc.want)
+		}
+	}
+}

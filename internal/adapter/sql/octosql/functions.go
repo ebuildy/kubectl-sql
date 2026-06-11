@@ -1,7 +1,6 @@
 package octosql
 
 import (
-	"encoding/json"
 	"sort"
 	"strings"
 
@@ -22,21 +21,13 @@ func FunctionMap() map[string]physical.FunctionDetails {
 	}
 }
 
-// asJSONMap reports whether s is a JSON object string and, if so, returns the
-// decoded map. Map columns (labels, annotations) are carried as JSON-object
-// strings, so the string-typed length/keys/contains/map_get descriptors use this
-// to operate on the per-row map. A plain (non-object) string returns ok=false and
-// falls back to ordinary string semantics.
-func asJSONMap(s string) (map[string]interface{}, bool) {
-	t := strings.TrimSpace(s)
-	if len(t) == 0 || t[0] != '{' {
-		return nil, false
-	}
-	var m map[string]interface{}
-	if err := json.Unmarshal([]byte(t), &m); err != nil {
-		return nil, false
-	}
-	return m, true
+// isMapListType reports whether t is the runtime type of a FieldTypeMap column: a
+// List whose Element type is Any. A map column carries its row value as a flat,
+// alternating key/value list ([k1, v1, k2, v2, ...]); a regular FieldTypeList
+// column has a concrete (non-Any) Element type (e.g. String). This is a static
+// (typecheck-time) check on the column type, distinguishing the two List shapes.
+func isMapListType(t octosql.Type) bool {
+	return t.TypeID == octosql.TypeIDList && t.List.Element != nil && t.List.Element.TypeID == octosql.TypeIDAny
 }
 
 func sortedKeys(m map[string]interface{}) []string {
@@ -58,8 +49,23 @@ func singleArgKindFn(id octosql.TypeID, out octosql.Type) func([]octosql.Type) (
 	}
 }
 
+// singleArgListFn builds a TypeFn matching exactly one List argument whose Element
+// type satisfies wantMapList (true: a map's flat key/value list with Element=Any;
+// false: a regular list with a concrete Element type).
+func singleArgListFn(wantMapList bool, out octosql.Type) func([]octosql.Type) (octosql.Type, bool) {
+	return func(types []octosql.Type) (octosql.Type, bool) {
+		if len(types) != 1 || types[0].TypeID != octosql.TypeIDList {
+			return octosql.Type{}, false
+		}
+		if isMapListType(types[0]) != wantMapList {
+			return octosql.Type{}, false
+		}
+		return out, true
+	}
+}
+
 // lengthFunction implements length(x): elements in a list/tuple/struct, characters
-// in a plain string, or — when the string is a JSON object (a map column) — the
+// in a plain string, or — for a map column (List<Any> of [k1,v1,k2,v2,...]) — the
 // number of map keys.
 func lengthFunction() physical.FunctionDetails {
 	descriptor := func(id octosql.TypeID, fn func([]octosql.Value) (octosql.Value, error)) physical.FunctionDescriptor {
@@ -70,6 +76,13 @@ func lengthFunction() physical.FunctionDetails {
 			descriptor(octosql.TypeIDList, func(v []octosql.Value) (octosql.Value, error) {
 				return octosql.NewInt(int64(len(v[0].List))), nil
 			}),
+			{
+				Strict: true,
+				TypeFn: singleArgListFn(true, octosql.Int),
+				Function: func(v []octosql.Value) (octosql.Value, error) {
+					return octosql.NewInt(int64(len(v[0].List) / 2)), nil
+				},
+			},
 			descriptor(octosql.TypeIDTuple, func(v []octosql.Value) (octosql.Value, error) {
 				return octosql.NewInt(int64(len(v[0].Tuple))), nil
 			}),
@@ -77,9 +90,6 @@ func lengthFunction() physical.FunctionDetails {
 				return octosql.NewInt(int64(len(v[0].Struct))), nil
 			}),
 			descriptor(octosql.TypeIDString, func(v []octosql.Value) (octosql.Value, error) {
-				if m, ok := asJSONMap(v[0].Str); ok {
-					return octosql.NewInt(int64(len(m))), nil
-				}
 				return octosql.NewInt(int64(len([]rune(v[0].Str)))), nil
 			}),
 		},
@@ -87,10 +97,11 @@ func lengthFunction() physical.FunctionDetails {
 }
 
 // containsFunction implements contains(container, needle) -> bool:
-//   - string:  substring check, OR (when the string is a JSON-object map column)
-//     true if any map VALUE equals the needle
-//   - list:    true if any element equals the needle
-//   - struct:  true if any field value equals the needle
+//   - string: substring check
+//   - list:   true if any element equals the needle
+//   - map column (List<Any> of [k1,v1,k2,v2,...]): true if any VALUE (odd-indexed
+//     element) equals the needle — keys are not matched
+//   - struct: true if any field value equals the needle
 func containsFunction() physical.FunctionDetails {
 	descriptor := func(id octosql.TypeID, fn func([]octosql.Value) (octosql.Value, error)) physical.FunctionDescriptor {
 		return physical.FunctionDescriptor{
@@ -105,32 +116,31 @@ func containsFunction() physical.FunctionDetails {
 		}
 	}
 
-	anyEqual := func(elems []octosql.Value, needle octosql.Value) bool {
-		for _, e := range elems {
-			if e.TypeID == needle.TypeID && e.Equal(needle) {
-				return true
-			}
-		}
-		return false
-	}
-
 	return physical.FunctionDetails{
 		Descriptors: []physical.FunctionDescriptor{
 			descriptor(octosql.TypeIDString, func(v []octosql.Value) (octosql.Value, error) {
 				needle := valueToPlainString(v[1])
-				if m, ok := asJSONMap(v[0].Str); ok {
-					for _, mv := range m {
-						if sv, isStr := mv.(string); isStr && sv == needle {
-							return octosql.NewBoolean(true), nil
-						}
-					}
-					return octosql.NewBoolean(false), nil
-				}
 				return octosql.NewBoolean(strings.Contains(v[0].Str, needle)), nil
 			}),
 			descriptor(octosql.TypeIDList, func(v []octosql.Value) (octosql.Value, error) {
 				return octosql.NewBoolean(anyEqual(v[0].List, v[1])), nil
 			}),
+			{
+				Strict: true,
+				TypeFn: func(types []octosql.Type) (octosql.Type, bool) {
+					if len(types) != 2 || !isMapListType(types[0]) {
+						return octosql.Type{}, false
+					}
+					return octosql.Boolean, true
+				},
+				Function: func(v []octosql.Value) (octosql.Value, error) {
+					values := make([]octosql.Value, 0, len(v[0].List)/2)
+					for i := 1; i < len(v[0].List); i += 2 {
+						values = append(values, v[0].List[i])
+					}
+					return octosql.NewBoolean(anyEqual(values, v[1])), nil
+				},
+			},
 			descriptor(octosql.TypeIDStruct, func(v []octosql.Value) (octosql.Value, error) {
 				return octosql.NewBoolean(anyEqual(v[0].Struct, v[1])), nil
 			}),
@@ -138,9 +148,19 @@ func containsFunction() physical.FunctionDetails {
 	}
 }
 
+// anyEqual reports whether needle is present (by type and value equality) in elems.
+func anyEqual(elems []octosql.Value, needle octosql.Value) bool {
+	for _, e := range elems {
+		if e.TypeID == needle.TypeID && e.Equal(needle) {
+			return true
+		}
+	}
+	return false
+}
+
 // keysFunction implements keys(x) -> list of keys (strings):
 //   - struct: the field names (from the type, captured at typecheck)
-//   - string: when the string is a JSON-object map column, its sorted keys
+//   - map column (List<Any> of [k1,v1,k2,v2,...]): the even-indexed (key) elements
 func keysFunction() physical.FunctionDetails {
 	stringElem := octosql.String
 	listOfString := octosql.Type{
@@ -173,16 +193,11 @@ func keysFunction() physical.FunctionDetails {
 			},
 			{
 				Strict: true,
-				TypeFn: singleArgKindFn(octosql.TypeIDString, listOfString),
+				TypeFn: singleArgListFn(true, listOfString),
 				Function: func(v []octosql.Value) (octosql.Value, error) {
-					m, ok := asJSONMap(v[0].Str)
-					if !ok {
-						return octosql.NewList(nil), nil
-					}
-					ks := sortedKeys(m)
-					elems := make([]octosql.Value, len(ks))
-					for i, k := range ks {
-						elems[i] = octosql.NewString(k)
+					elems := make([]octosql.Value, 0, len(v[0].List)/2)
+					for i := 0; i < len(v[0].List); i += 2 {
+						elems = append(elems, v[0].List[i])
 					}
 					return octosql.NewList(elems), nil
 				},
@@ -191,32 +206,30 @@ func keysFunction() physical.FunctionDetails {
 	}
 }
 
-// mapGetFunction implements map_get(map, key) -> string|null: looks up a key in a
-// map column (a JSON-object string) and returns its value, or NULL if absent. This
-// backs the field['key'] access syntax (see rewriteDottedFields).
+// mapGetFunction implements map_get(map, key) -> any|null: looks up a key in a map
+// column (List<Any> of [k1,v1,k2,v2,...]) and returns its value in its native
+// octosql type, or NULL if absent. This backs the field['key'] access syntax (see
+// rewriteDottedFields).
 func mapGetFunction() physical.FunctionDetails {
-	strOrNull := octosql.TypeSum(octosql.String, octosql.Null)
+	anyOrNull := octosql.TypeSum(octosql.Any, octosql.Null)
 	return physical.FunctionDetails{
 		Descriptors: []physical.FunctionDescriptor{
 			{
 				Strict: true,
 				TypeFn: func(types []octosql.Type) (octosql.Type, bool) {
-					if len(types) != 2 || types[0].TypeID != octosql.TypeIDString || types[1].TypeID != octosql.TypeIDString {
+					if len(types) != 2 || !isMapListType(types[0]) || types[1].TypeID != octosql.TypeIDString {
 						return octosql.Type{}, false
 					}
-					return strOrNull, true
+					return anyOrNull, true
 				},
 				Function: func(v []octosql.Value) (octosql.Value, error) {
-					m, ok := asJSONMap(v[0].Str)
-					if !ok {
-						return octosql.NewNull(), nil
+					list := v[0].List
+					for i := 0; i+1 < len(list); i += 2 {
+						if list[i].Str == v[1].Str {
+							return list[i+1], nil
+						}
 					}
-
-					_, exists := m[v[1].Str]
-					if !exists {
-						return octosql.NewNull(), nil
-					}
-					return octosql.NewString(jsonValueToString(m[v[1].Str])), nil
+					return octosql.NewNull(), nil
 				},
 			},
 		},
@@ -224,75 +237,59 @@ func mapGetFunction() physical.FunctionDetails {
 }
 
 // mapContainsKeyFunction implements map_contains_key(map, key) -> bool: true if a
-// map column (a JSON-object string) has the given key. Returns false for a
-// non-map string.
+// map column (List<Any> of [k1,v1,k2,v2,...]) has the given key.
 func mapContainsKeyFunction() physical.FunctionDetails {
 	return physical.FunctionDetails{
 		Descriptors: []physical.FunctionDescriptor{
 			{
 				Strict: true,
 				TypeFn: func(types []octosql.Type) (octosql.Type, bool) {
-					if len(types) != 2 || types[0].TypeID != octosql.TypeIDString || types[1].TypeID != octosql.TypeIDString {
+					if len(types) != 2 || !isMapListType(types[0]) || types[1].TypeID != octosql.TypeIDString {
 						return octosql.Type{}, false
 					}
 					return octosql.Boolean, true
 				},
 				Function: func(v []octosql.Value) (octosql.Value, error) {
-					m, ok := asJSONMap(v[0].Str)
-					if !ok {
-						return octosql.NewBoolean(false), nil
+					list := v[0].List
+					for i := 0; i+1 < len(list); i += 2 {
+						if list[i].Str == v[1].Str {
+							return octosql.NewBoolean(true), nil
+						}
 					}
-					_, exists := m[v[1].Str]
-					return octosql.NewBoolean(exists), nil
+					return octosql.NewBoolean(false), nil
 				},
 			},
 		},
 	}
 }
 
-// mapValuesFunction implements map_values(map) -> list of strings: the values of
-// a map column (a JSON-object string). Values are emitted in key order for
-// deterministic output (the map is logically unordered). Non-string values are
-// JSON-encoded. A non-map string yields an empty list.
+// mapValuesFunction implements map_values(map) -> list of values in their native
+// octosql types: the odd-indexed (value) elements of a map column (List<Any> of
+// [k1,v1,k2,v2,...]). Values are emitted in key order (anyToMapValue sorts keys),
+// for deterministic output.
 func mapValuesFunction() physical.FunctionDetails {
-	stringElem := octosql.String
-	listOfString := octosql.Type{
+	// Declared with a nil Element type (rather than List<Any>, the map column
+	// shape) so the renderer's isMapListType check does not mistake this plain
+	// list of values for a flat key/value map list.
+	listOfValues := octosql.Type{
 		TypeID: octosql.TypeIDList,
-		List:   struct{ Element *octosql.Type }{Element: &stringElem},
+		List:   struct{ Element *octosql.Type }{Element: nil},
 	}
 	return physical.FunctionDetails{
 		Descriptors: []physical.FunctionDescriptor{
 			{
 				Strict: true,
-				TypeFn: singleArgKindFn(octosql.TypeIDString, listOfString),
+				TypeFn: singleArgListFn(true, listOfValues),
 				Function: func(v []octosql.Value) (octosql.Value, error) {
-					m, ok := asJSONMap(v[0].Str)
-					if !ok {
-						return octosql.NewList(nil), nil
-					}
-					ks := sortedKeys(m)
-					elems := make([]octosql.Value, len(ks))
-					for i, k := range ks {
-						elems[i] = octosql.NewString(jsonValueToString(m[k]))
+					elems := make([]octosql.Value, 0, len(v[0].List)/2)
+					for i := 1; i < len(v[0].List); i += 2 {
+						elems = append(elems, v[0].List[i])
 					}
 					return octosql.NewList(elems), nil
 				},
 			},
 		},
 	}
-}
-
-// jsonValueToString renders a decoded JSON value as a string: the raw text for
-// strings, otherwise its JSON encoding.
-func jsonValueToString(val interface{}) string {
-	if s, isStr := val.(string); isStr {
-		return s
-	}
-	b, err := json.Marshal(val)
-	if err != nil {
-		return ""
-	}
-	return string(b)
 }
 
 // valueToPlainString returns the bare string content of a value for substring
