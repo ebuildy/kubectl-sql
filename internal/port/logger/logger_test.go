@@ -11,6 +11,10 @@ func TestNopIsSafe(t *testing.T) {
 		t.Fatal("Nop() returned nil")
 	}
 	// Must not panic.
+	l.Trace("t", String("k", "v"))
+	if l.TraceEnabled() {
+		t.Error("Nop TraceEnabled() = true, want false")
+	}
 	l.Debug("d", String("k", "v"))
 	l.Info("i")
 	l.Error("e", Err(context.Canceled))

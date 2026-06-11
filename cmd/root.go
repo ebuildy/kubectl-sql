@@ -98,5 +98,5 @@ func init() {
 	rootCmd.PersistentFlags().Bool("dry-run", false, "Validate SQL without hitting the API")
 	rootCmd.PersistentFlags().BoolP("watch", "w", false, "Stream live resource changes via the Kubernetes WATCH API")
 	rootCmd.PersistentFlags().BoolP("repl", "i", false, "Open an interactive SQL REPL (default when no query is given)")
-	rootCmd.PersistentFlags().CountP("verbose", "v", "Increase log verbosity: -v=info, -vv=debug (default error)")
+	rootCmd.PersistentFlags().CountP("verbose", "v", "Increase log verbosity: -v=info, -vv=debug, -vvv=trace (default error)")
 }

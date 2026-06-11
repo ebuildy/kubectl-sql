@@ -13,21 +13,21 @@ import (
 	"github.com/ebuildy/kubectl-sql/internal/port/logger"
 )
 
+// traceLevel sits below zapcore.DebugLevel for very high-volume diagnostics,
+// only enabled at the highest verbosity.
+const traceLevel = zapcore.Level(-2)
+
 // zapLogger adapts *zap.Logger to the logger.Logger port.
 type zapLogger struct {
 	z *zap.Logger
 }
 
 // New constructs a console logger writing to stderr at the level derived from
-// opts.Verbosity (0 -> error, 1 -> info, >=2 -> debug). Color is enabled unless
-// opts.NoColor is set.
+// opts.Verbosity (0 -> error, 1 -> info, 2 -> debug, >=3 -> trace). Color is
+// enabled unless opts.NoColor is set.
 func New(opts logger.Options) logger.Logger {
 	encCfg := zap.NewDevelopmentEncoderConfig()
-	if opts.NoColor {
-		encCfg.EncodeLevel = zapcore.CapitalLevelEncoder
-	} else {
-		encCfg.EncodeLevel = zapcore.CapitalColorLevelEncoder
-	}
+	encCfg.EncodeLevel = levelEncoder(opts.NoColor)
 
 	core := zapcore.NewCore(
 		zapcore.NewConsoleEncoder(encCfg),
@@ -44,9 +44,37 @@ func levelFor(verbosity int) zapcore.Level {
 		return zapcore.ErrorLevel
 	case verbosity == 1:
 		return zapcore.InfoLevel
-	default:
+	case verbosity == 2:
 		return zapcore.DebugLevel
+	default:
+		return traceLevel
 	}
+}
+
+// levelEncoder renders traceLevel as "TRACE" and delegates known levels to
+// zap's capital (optionally colored) encoder.
+func levelEncoder(noColor bool) zapcore.LevelEncoder {
+	base := zapcore.CapitalColorLevelEncoder
+	if noColor {
+		base = zapcore.CapitalLevelEncoder
+	}
+	return func(l zapcore.Level, enc zapcore.PrimitiveArrayEncoder) {
+		if l == traceLevel {
+			enc.AppendString("TRACE")
+			return
+		}
+		base(l, enc)
+	}
+}
+
+func (l *zapLogger) Trace(msg string, fields ...logger.Field) {
+	if ce := l.z.Check(traceLevel, msg); ce != nil {
+		ce.Write(toZapFields(fields)...)
+	}
+}
+
+func (l *zapLogger) TraceEnabled() bool {
+	return l.z.Core().Enabled(traceLevel)
 }
 
 func (l *zapLogger) Debug(msg string, fields ...logger.Field) {

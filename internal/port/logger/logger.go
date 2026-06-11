@@ -32,6 +32,12 @@ func Duration(key string, d time.Duration) Field {
 
 // Logger is the logging port. All application code calls these methods only.
 type Logger interface {
+	// Trace logs very high-volume diagnostic detail (e.g. raw payloads),
+	// below Debug. Only emitted at the highest verbosity.
+	Trace(msg string, fields ...Field)
+	// TraceEnabled reports whether Trace-level logging is active, so callers
+	// can skip building expensive fields (e.g. JSON-marshaling) when it isn't.
+	TraceEnabled() bool
 	Debug(msg string, fields ...Field)
 	Info(msg string, fields ...Field)
 	Error(msg string, fields ...Field)
@@ -42,7 +48,7 @@ type Logger interface {
 }
 
 // Options configures logger construction. Verbosity maps to a level:
-// 0 -> error, 1 -> info, >=2 -> debug. NoColor disables ANSI level coloring.
+// 0 -> error, 1 -> info, 2 -> debug, >=3 -> trace. NoColor disables ANSI level coloring.
 type Options struct {
 	Verbosity int
 	NoColor   bool
@@ -51,6 +57,8 @@ type Options struct {
 // nopLogger is a Logger that discards everything.
 type nopLogger struct{}
 
+func (nopLogger) Trace(string, ...Field) {}
+func (nopLogger) TraceEnabled() bool     { return false }
 func (nopLogger) Debug(string, ...Field) {}
 func (nopLogger) Info(string, ...Field)  {}
 func (nopLogger) Error(string, ...Field) {}
