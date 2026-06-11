@@ -147,6 +147,16 @@ func valueToNativeTyped(v octosql.Value, t octosql.Type) interface{} {
 		}
 		return out
 	}
+	// Map columns are carried as a flat List<Any> of alternating key/value elements
+	// ([k1, v1, k2, v2, ...]). In JSON output, decode them into a real object
+	// (e.g. labels -> {"app":"nginx"}) with each value in its native JSON type.
+	if v.TypeID == octosql.TypeIDList && isMapListType(t) {
+		out := make(map[string]interface{}, len(v.List)/2)
+		for i := 0; i+1 < len(v.List); i += 2 {
+			out[v.List[i].Str] = valueToNative(v.List[i+1])
+		}
+		return out
+	}
 	return valueToNative(v)
 }
 
@@ -204,6 +214,21 @@ func valueToNative(v octosql.Value) interface{} {
 		return v.Str
 	case octosql.TypeIDTime:
 		return v.Time.Format(time.RFC3339)
+	case octosql.TypeIDList:
+		out := make([]interface{}, len(v.List))
+		for i, e := range v.List {
+			// List elements are JSON-encoded strings; decode so nested objects
+			// render as real JSON rather than escaped strings.
+			if e.TypeID == octosql.TypeIDString {
+				var decoded interface{}
+				if json.Unmarshal([]byte(e.Str), &decoded) == nil {
+					out[i] = decoded
+					continue
+				}
+			}
+			out[i] = valueToNative(e)
+		}
+		return out
 	default:
 		return v.String()
 	}

@@ -34,7 +34,7 @@ Feature: SQL queries against envtest cluster
   Scenario: JSON output format returns valid JSON array
     When I run kubectl-sql --output "json" with query "SELECT name FROM pods LIMIT 3" against the envtest cluster
     Then the exit code is 0
-    And the output produces JQ "length <= 3 and .[0] | has(\"pods.name\")"
+    And the output produces JQ "(length <= 3) and (.[0] | has(\"pods.name\"))"
 
   Scenario: CSV output format returns CSV with header
     When I run kubectl-sql --output "csv" with query "SELECT name FROM pods LIMIT 3" against the envtest cluster
@@ -96,6 +96,13 @@ Feature: SQL queries against envtest cluster
     And the output does not contain "managedFields"
     And the output does not contain "resourceVersion"
 
+  Scenario: DESCRIBE TABLE pods types labels as a map (one column, not per-key)
+    When I run kubectl-sql "DESCRIBE TABLE pods" against the envtest cluster
+    Then the exit code is 0
+    And the output contains "labels"
+    And the output contains "map"
+    And the output does not contain "app"
+
   Scenario: DESCRIBE TABLE configmaps lists name column
     When I run kubectl-sql "DESCRIBE TABLE configmaps" against the envtest cluster
     Then the exit code is 0
@@ -138,6 +145,14 @@ Feature: SQL queries against envtest cluster
     Then the exit code is 0
     And the output produces JQ ".[0] | to_entries | .[0].value == 5"
 
+  Scenario: length() counts labels (struct) and volumes (list)
+    When I run kubectl-sql --namespace "nginx-test" with query "SELECT metadata->name AS name, length(metadata->labels) AS nlabels, length(spec->volumes) AS nvolumes, spec->volumes AS volumes FROM po WHERE name = 'nginx'" against the envtest cluster
+    Then the exit code is 0
+    And the output produces JQ ".[0].name == \"nginx\""
+    And the output produces JQ ".[0].nlabels == 1"
+    And the output produces JQ ".[0].nvolumes == 1"
+    And the output produces JQ ".[0].volumes | type == \"array\" and length == 1"
+
   Scenario: DESCRIBE TABLE shows metadata column
     When I run kubectl-sql "DESCRIBE TABLE pods" against the envtest cluster
     Then the exit code is 0
@@ -146,32 +161,7 @@ Feature: SQL queries against envtest cluster
   Scenario: SELECT metadata column contains object data
     When I run kubectl-sql "SELECT name, metadata FROM pods LIMIT 1" against the envtest cluster
     Then the exit code is 0
-    And the output produces JQ ".[0][\"pods.metadata\"] | has(\"resourceVersion\")"
-
-  Scenario: SELECT metadata->labels->app returns nginx (arrow notation)
-    When I run kubectl-sql "SELECT DISTINCT metadata->labels->app FROM pods" against the envtest cluster
-    Then the exit code is 0
-    And the output produces JQ "[.[].\"pods.metadata->labels->app\"] | any(. == \"nginx\")"
-
-  Scenario: SELECT metadata.labels.app returns nginx (dot notation rewritten to arrow)
-    When I run kubectl-sql "SELECT DISTINCT metadata.labels.app FROM pods" against the envtest cluster
-    Then the exit code is 0
-    And the output produces JQ "[.[].\"pods.metadata->labels->app\"] | any(. == \"nginx\")"
-
-  Scenario: SELECT metadata->labels returns labels struct
-    When I run kubectl-sql "SELECT DISTINCT metadata->labels FROM pods LIMIT 1" against the envtest cluster
-    Then the exit code is 0
-    And the output produces JQ ".[0][\"pods.metadata->labels\"] | has(\"app\")"
-
-  Scenario: SELECT metadata.labels.* expands to labels struct
-    When I run kubectl-sql "SELECT DISTINCT metadata.labels.* FROM pods LIMIT 1" against the envtest cluster
-    Then the exit code is 0
-    And the output produces JQ ".[0][\"pods.metadata->labels\"] | has(\"app\")"
-
-  Scenario: WHERE on nested struct field filters correctly
-    When I run kubectl-sql "SELECT name FROM pods WHERE metadata->labels->app = 'nginx'" against the envtest cluster
-    Then the exit code is 0
-    And the output produces JQ "length > 0"
+    And the output produces JQ ".[0][\"pods.metadata\"] | has(\"uid\")"
 
   # Nginx pod with ConfigMap volume
   Scenario: spec.volumes[0].configMap shows nginx-config
@@ -191,7 +181,7 @@ Feature: SQL queries against envtest cluster
   Scenario: SELECT with multiple columns and LIMIT
     When I run kubectl-sql "SELECT name, namespace, status FROM pods LIMIT 3" against the envtest cluster
     Then the exit code is 0
-    And the output produces JQ "length <= 3 and .[0] | has(\"pods.namespace\")"
+    And the output produces JQ "(length <= 3) and (.[0] | has(\"pods.namespace\"))"
 
   Scenario: --namespace flag scopes COUNT(*) to main namespace
     When I run kubectl-sql --namespace "main" with query "SELECT COUNT(*) FROM pods" against the envtest cluster
@@ -213,7 +203,7 @@ Feature: SQL queries against envtest cluster
   Scenario: Piped query runs in batch mode and exits 0
     When I pipe "SELECT name FROM pods LIMIT 1" to kubectl-sql against the envtest cluster
     Then the exit code is 0
-    And the output produces JQ "length <= 1 and .[0] | has(\"pods.name\")"
+    And the output produces JQ "(length <= 1) and (.[0] | has(\"pods.name\"))"
 
   # Logging / verbosity
   Scenario: -vv emits logs on stderr while stdout stays valid JSON

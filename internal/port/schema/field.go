@@ -11,8 +11,17 @@ const (
 	FieldTypeInt    FieldType = "int"
 	FieldTypeFloat  FieldType = "float"
 	FieldTypeBool   FieldType = "bool"
-	FieldTypeObject FieldType = "object" // maps → octosql Struct; slices → JSON string
+	FieldTypeObject FieldType = "object" // fixed-schema struct (metadata, spec, status) → octosql Struct
+	FieldTypeMap    FieldType = "map"    // open-ended map[string]T (labels, annotations) → octosql Struct over sample keys
+	FieldTypeList   FieldType = "list"   // slices → octosql List (JSON-string elements)
 )
+
+// IsObjectLike reports whether the field type carries named subfields and nests
+// recursively — i.e. a fixed-schema struct OR an open-ended map. Both materialize
+// as an octosql Struct; they differ only in how columns/keys are presented.
+func (t FieldType) IsObjectLike() bool {
+	return t == FieldTypeObject || t == FieldTypeMap
+}
 
 // Field represents a single inferred column.
 // Name is the SQL-safe column name (dots replaced with underscores).

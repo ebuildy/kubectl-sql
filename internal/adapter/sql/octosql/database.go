@@ -70,6 +70,8 @@ func guaranteedSchemaFields() []internalschema.Field {
 	return []internalschema.Field{
 		{Name: "name", Type: internalschema.FieldTypeString},
 		{Name: "namespace", Type: internalschema.FieldTypeString},
+		{Name: "labels", Type: internalschema.FieldTypeMap},
+		{Name: "annotations", Type: internalschema.FieldTypeMap},
 	}
 }
 
@@ -90,9 +92,31 @@ func fieldToOctoType(f internalschema.Field) octosql.Type {
 		return octosql.Int
 	case internalschema.FieldTypeFloat:
 		return octosql.Float
+	case internalschema.FieldTypeList:
+		// Lists carry JSON-string elements so length() counts elements while each
+		// element still renders as its JSON form.
+		elem := octosql.String
+		return octosql.Type{
+			TypeID: octosql.TypeIDList,
+			List:   struct{ Element *octosql.Type }{Element: &elem},
+		}
+	case internalschema.FieldTypeMap:
+		// An open-ended map[string]T has per-row varying keys. octosql has no map type
+		// and its Struct is a FIXED, positional shape (names live in the type, not the
+		// value), so a struct cannot represent a dynamic map. We carry the map as a flat
+		// List<Any> of alternating key/value elements ([k1, v1, k2, v2, ...]), each value
+		// in its native octosql type; key access is map['key'] (rewritten to map_get),
+		// and keys()/contains()/length() operate on the flat list. The renderer decodes
+		// map columns back into JSON objects.
+		return octosql.Type{
+			TypeID: octosql.TypeIDList,
+			List:   struct{ Element *octosql.Type }{Element: &octosql.Any},
+		}
 	case internalschema.FieldTypeObject:
+		// A fixed-schema struct materializes as an octosql Struct over its known
+		// subfields, so -> access works.
 		if len(f.SubFields) == 0 {
-			return octosql.String // slice or empty map — serialize as JSON
+			return octosql.String // no known keys yet — serialize as JSON
 		}
 		structFields := make([]octosql.StructField, len(f.SubFields))
 		for i, sf := range f.SubFields {
@@ -184,6 +208,10 @@ func resolveFieldValue(raw map[string]interface{}, field internalschema.Field) o
 		return anyToOctoValue(ResolveField(raw, "metadata.name"))
 	case "namespace":
 		return anyToOctoValue(ResolveField(raw, "metadata.namespace"))
+	case "labels":
+		return anyToMapValue(ResolveField(raw, "metadata.labels"))
+	case "annotations":
+		return anyToMapValue(ResolveField(raw, "metadata.annotations"))
 	}
 
 	resolvePath := field.Name
@@ -191,10 +219,60 @@ func resolveFieldValue(raw map[string]interface{}, field internalschema.Field) o
 		resolvePath = field.Path
 	}
 
+	if field.Type == internalschema.FieldTypeList {
+		return anyToListValue(ResolveField(raw, resolvePath))
+	}
+	if field.Type == internalschema.FieldTypeMap {
+		return anyToMapValue(ResolveField(raw, resolvePath))
+	}
+	// A fixed-schema struct materializes as an octosql Struct over its known subfields.
 	if field.Type == internalschema.FieldTypeObject && len(field.SubFields) > 0 {
 		return resolveStructValue(raw, resolvePath, field.SubFields)
 	}
 	return anyToOctoValue(ResolveField(raw, resolvePath))
+}
+
+// anyToMapValue encodes a map[string]T value as a flat List<Any> of alternating
+// key/value elements ([k1, v1, k2, v2, ...]), the runtime representation of a
+// FieldTypeMap column. Keys are sorted for deterministic output. Each value is
+// converted via anyToOctoValue, preserving its native octosql type. A nil/non-map
+// value yields an empty list so the column type stays List<Any>.
+func anyToMapValue(v interface{}) octosql.Value {
+	m, ok := v.(map[string]interface{})
+	if !ok || m == nil {
+		return octosql.NewList(nil)
+	}
+	keys := sortedKeys(m)
+	elems := make([]octosql.Value, 0, len(keys)*2)
+	for _, k := range keys {
+		elems = append(elems, octosql.NewString(k), anyToOctoValue(m[k]))
+	}
+	return octosql.NewList(elems)
+}
+
+// anyToListValue builds an octosql List value whose elements are the JSON-encoded
+// form of each slice element. A non-slice (or nil) value yields an empty list so
+// the runtime type stays a List, matching the schema declared in fieldToOctoType.
+func anyToListValue(v interface{}) octosql.Value {
+	slice, ok := v.([]interface{})
+	if !ok {
+		return octosql.NewList(nil)
+	}
+	elems := make([]octosql.Value, len(slice))
+	for i, e := range slice {
+		switch e.(type) {
+		case map[string]interface{}, []interface{}:
+			b, err := json.Marshal(e)
+			if err != nil {
+				elems[i] = octosql.NewNull()
+				continue
+			}
+			elems[i] = octosql.NewString(string(b))
+		default:
+			elems[i] = octosql.NewString(fmt.Sprintf("%v", e))
+		}
+	}
+	return octosql.NewList(elems)
 }
 
 // resolveStructValue builds an octosql.NewStruct value for a map field.
@@ -218,14 +296,19 @@ func resolveStructValue(raw map[string]interface{}, path string, subFields []int
 			values[i] = octosql.NewNull()
 			continue
 		}
-		if sf.Type == internalschema.FieldTypeObject && len(sf.SubFields) > 0 {
-			// Recursively build a struct for nested map subfields.
+		switch {
+		case sf.Type == internalschema.FieldTypeList:
+			values[i] = anyToListValue(v)
+		case sf.Type == internalschema.FieldTypeMap:
+			values[i] = anyToMapValue(v)
+		case sf.Type == internalschema.FieldTypeObject && len(sf.SubFields) > 0:
+			// Recursively build a struct for nested struct subfields.
 			if nested, ok := v.(map[string]interface{}); ok {
 				values[i] = resolveMapAsStruct(nested, sf.SubFields)
 			} else {
 				values[i] = octosql.NewNull()
 			}
-		} else {
+		default:
 			values[i] = anyToOctoValue(v)
 		}
 	}
@@ -237,9 +320,20 @@ func resolveMapAsStruct(m map[string]interface{}, subFields []internalschema.Fie
 	values := make([]octosql.Value, len(subFields))
 	for i, sf := range subFields {
 		v, exists := m[sf.Name]
-		if !exists {
+		switch {
+		case !exists:
 			values[i] = octosql.NewNull()
-		} else {
+		case sf.Type == internalschema.FieldTypeList:
+			values[i] = anyToListValue(v)
+		case sf.Type == internalschema.FieldTypeMap:
+			values[i] = anyToMapValue(v)
+		case sf.Type == internalschema.FieldTypeObject && len(sf.SubFields) > 0:
+			if nested, ok := v.(map[string]interface{}); ok {
+				values[i] = resolveMapAsStruct(nested, sf.SubFields)
+			} else {
+				values[i] = octosql.NewNull()
+			}
+		default:
 			values[i] = anyToOctoValue(v)
 		}
 	}

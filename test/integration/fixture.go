@@ -186,7 +186,7 @@ func createPod(ctx context.Context, dynClient dynamic.Interface, ns string) erro
 			"metadata": map[string]interface{}{
 				"name":      name,
 				"namespace": ns,
-				"labels":    map[string]interface{}{"app": "nginx", "env": "test"},
+				"labels":    map[string]interface{}{"app": randomAppName(), "env": "test"},
 			},
 			"spec": map[string]interface{}{
 				"containers": []interface{}{
@@ -254,7 +254,7 @@ func createConfigMap(ctx context.Context, dynClient dynamic.Interface, ns string
 			"apiVersion": "v1",
 			"kind":       "ConfigMap",
 			"metadata":   map[string]interface{}{"name": name, "namespace": ns},
-			"data":       map[string]interface{}{"key": "value"},
+			"data":       map[string]interface{}{"key1": "value1", "key2": "value2", "config.json": `{"foo": "bar"}`},
 		},
 	}
 	_, err := dynClient.Resource(configmapsGVR).Namespace(ns).Create(ctx, cm, metav1.CreateOptions{})
