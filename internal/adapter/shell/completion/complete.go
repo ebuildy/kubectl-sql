@@ -4,11 +4,13 @@ import (
 	"context"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
 	shellCompletionPort "github.com/ebuildy/kubectl-sql/internal/port/autocomplete"
 	k8sport "github.com/ebuildy/kubectl-sql/internal/port/datasources/k8s"
+	"github.com/ebuildy/kubectl-sql/internal/port/schema"
 )
 
 // maxSuggestions caps how many completion candidates are shown at once.
@@ -43,13 +45,18 @@ var wordRe = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*$`)
 // fromRe extracts the first table after FROM (optionally k8s.-qualified).
 var fromRe = regexp.MustCompile(`(?i)\bfrom\s+(?:k8s\.)?([A-Za-z_][A-Za-z0-9_]*)`)
 
+// arrowChainRe matches a struct field access chain (e.g. spec->containers->0->)
+// immediately preceding the word under the cursor. Group 1 is the chain with
+// the trailing "->" stripped, e.g. "spec->containers->0".
+var arrowChainRe = regexp.MustCompile(`((?:[A-Za-z_][A-Za-z0-9_]*|\d+)(?:->(?:[A-Za-z_][A-Za-z0-9_]*|\d+))*)->[A-Za-z0-9_]*$`)
+
 // cliCompletionSource implements shellCompletionPort.ShellCompletionSource over the k8s DataSource port.
 type cliCompletionSource struct {
 	ctx         context.Context
 	ds          k8sport.DataSource
 	functions   []string // sorted SQL function names (lowercase) offered in expression positions
 	mu          sync.Mutex
-	columnCache map[string][]string // table -> columns (session cache)
+	columnCache map[string][]schema.Field // table -> fields, including SubFields (session cache)
 }
 
 // NewCompletionSource builds a completion source, returning nil if the cluster
@@ -57,7 +64,7 @@ type cliCompletionSource struct {
 // SQL function names (e.g. "map_get", "upper") offered alongside keywords and
 // columns in expression positions.
 func NewShellCompletion(ctx context.Context, dataSource k8sport.DataSource, functionNames []string) shellCompletionPort.ShellCompletionRunner {
-	return &cliCompletionSource{ctx: ctx, ds: dataSource, functions: functionNames, columnCache: make(map[string][]string)}
+	return &cliCompletionSource{ctx: ctx, ds: dataSource, functions: functionNames, columnCache: make(map[string][]schema.Field)}
 }
 
 // Tables returns queryable resource names via the port.
@@ -73,8 +80,9 @@ func (s *cliCompletionSource) Tables() []string {
 	return names
 }
 
-// Columns returns the column names for a table, or nil if it cannot be resolved.
-func (s *cliCompletionSource) Columns(table string) []string {
+// Columns returns the inferred fields for a table (including SubFields for
+// struct/map columns), or nil if it cannot be resolved.
+func (s *cliCompletionSource) Columns(table string) []schema.Field {
 	resource, err := s.ds.Resolve(s.ctx, strings.ToLower(table))
 	if err != nil {
 		return nil
@@ -83,11 +91,7 @@ func (s *cliCompletionSource) Columns(table string) []string {
 	if err != nil {
 		return nil
 	}
-	cols := make([]string, 0, len(fields))
-	for _, f := range fields {
-		cols = append(cols, f.Name)
-	}
-	return cols
+	return fields
 }
 
 // Do implements readline.AutoCompleter. line[:pos] is the text up to the cursor.
@@ -135,6 +139,18 @@ func (c *cliCompletionSource) candidates(prefixText, fullLine, word string) []st
 		return matchPrefix(c.Tables(), lowerWord)
 	}
 
+	table := tableInLine(fullLine)
+
+	// Struct/map field access (e.g. "spec->con"): suggest only the subfields of
+	// the resolved parent path, not the full keyword/function/column set.
+	if chain := arrowChainRe.FindStringSubmatch(prefixText); chain != nil {
+		if table == "" {
+			return nil
+		}
+		fields := subFieldsAtPath(c.columns(table), strings.Split(chain[1], "->"))
+		return matchPrefix(fieldNames(fields), lowerWord)
+	}
+
 	var out []string
 	// Keywords (case preserved relative to the typed word).
 	out = append(out, matchKeywords(word)...)
@@ -144,10 +160,48 @@ func (c *cliCompletionSource) candidates(prefixText, fullLine, word string) []st
 		out = append(out, fn+"(")
 	}
 	// Columns for the FROM table, if one is resolvable from the whole line.
-	if table := tableInLine(fullLine); table != "" {
-		out = append(out, matchPrefix(c.columns(table), lowerWord)...)
+	if table != "" {
+		out = append(out, matchPrefix(fieldNames(c.columns(table)), lowerWord)...)
 	}
 	return out
+}
+
+// subFieldsAtPath walks fields following path (a chain of -> separated
+// segments, e.g. ["spec", "containers", "0"]) and returns the SubFields at
+// that depth, or nil if any segment cannot be resolved. Numeric segments
+// (array indices) pass through to the same element's SubFields, since
+// inferred list element fields share one SubFields set regardless of index.
+func subFieldsAtPath(fields []schema.Field, path []string) []schema.Field {
+	for _, seg := range path {
+		if _, err := strconv.Atoi(seg); err == nil {
+			// Array index: stay on the current field set (list elements all
+			// share the same SubFields).
+			continue
+		}
+		var next []schema.Field
+		found := false
+		for _, f := range fields {
+			if strings.EqualFold(f.Name, seg) {
+				next = f.SubFields
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil
+		}
+		fields = next
+	}
+	return fields
+}
+
+// fieldNames extracts the Name of each field.
+func fieldNames(fields []schema.Field) []string {
+	names := make([]string, 0, len(fields))
+	for _, f := range fields {
+		names = append(names, f.Name)
+	}
+	return names
 }
 
 // expectsTableName reports whether the word under the cursor is in a position
@@ -218,9 +272,9 @@ func matchPrefix(items []string, lowerWord string) []string {
 	return out
 }
 
-// columns returns the cached column list for table, fetching and caching it on
+// columns returns the cached fields for table, fetching and caching them on
 // first use (eager prefetch happens via Prefetch; this is the lazy fallback).
-func (c *cliCompletionSource) columns(table string) []string {
+func (c *cliCompletionSource) columns(table string) []schema.Field {
 	c.mu.Lock()
 	cols, ok := c.columnCache[table]
 	c.mu.Unlock()

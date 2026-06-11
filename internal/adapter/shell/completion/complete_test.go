@@ -18,6 +18,7 @@ import (
 type fakeDataSource struct {
 	tables  []string
 	columns map[string][]string
+	fields  map[string][]schema.Field // table -> fields with SubFields, takes precedence over columns
 
 	calls int32 // counts calls to Columns for caching assertions
 }
@@ -38,6 +39,9 @@ func (f *fakeDataSource) Resources(ctx context.Context) ([]dataSourcePort.Resour
 
 func (f *fakeDataSource) InferSchema(ctx context.Context, r dataSourcePort.Resource) ([]schema.Field, error) {
 	atomic.AddInt32(&f.calls, 1)
+	if fields, ok := f.fields[r.Name]; ok {
+		return fields, nil
+	}
 	cols, ok := f.columns[r.Name]
 	if !ok {
 		return nil, fmt.Errorf("unknown resource %q", r.Name)
@@ -285,6 +289,53 @@ func TestComplete_UnknownTableNoColumns(t *testing.T) {
 			t.Errorf("unknown table should yield no columns: %v", got)
 		}
 	}
+}
+
+func TestComplete_StructFieldAfterArrow(t *testing.T) {
+	fields := map[string][]schema.Field{
+		"pods": {
+			{Name: "name"},
+			{Name: "namespace"},
+			{Name: "spec", Type: schema.FieldTypeObject, SubFields: []schema.Field{
+				{Name: "containers", Type: schema.FieldTypeList},
+				{Name: "nodeName"},
+			}},
+			{Name: "status", Type: schema.FieldTypeObject, SubFields: []schema.Field{
+				{Name: "phase"},
+			}},
+		},
+	}
+	c := NewShellCompletion(context.Background(), &fakeDataSource{fields: fields}, nil)
+
+	got := doCursor(c, "SELECT spec->con| FROM pods")
+	assert.Contains(t, got, "containers", "expected 'containers' subfield suggestion for spec->con")
+	assert.NotContains(t, got, "nodeName", "should filter subfields by typed prefix")
+	assert.NotContains(t, got, "status", "should not suggest top-level columns after ->")
+
+	got = doCursor(c, "SELECT spec->| FROM pods")
+	assert.Contains(t, got, "containers", "empty word after -> should list all subfields")
+	assert.Contains(t, got, "nodeName")
+
+	// Unknown parent path -> no suggestions, no panic.
+	got = doCursor(c, "SELECT bogus->fie| FROM pods")
+	assert.Empty(t, got, "unresolvable struct path should yield no suggestions")
+}
+
+func TestComplete_NestedStructFieldAfterArrow(t *testing.T) {
+	fields := map[string][]schema.Field{
+		"pods": {
+			{Name: "spec", Type: schema.FieldTypeObject, SubFields: []schema.Field{
+				{Name: "containers", Type: schema.FieldTypeList, SubFields: []schema.Field{
+					{Name: "name"},
+					{Name: "image"},
+				}},
+			}},
+		},
+	}
+	c := NewShellCompletion(context.Background(), &fakeDataSource{fields: fields}, nil)
+
+	got := doCursor(c, "SELECT spec->containers->0->na| FROM pods")
+	assert.Contains(t, got, "name", "array index segment should pass through to element subfields")
 }
 
 func TestComplete_ColumnCaching(t *testing.T) {
