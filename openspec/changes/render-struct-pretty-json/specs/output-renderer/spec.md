@@ -1,46 +1,4 @@
-# Spec: Output Renderer
-
-## Purpose
-
-Defines the behavior of `internal/output.Render` — the direct result renderer that replaces octosql's `OutputPrinter`. It drives the octosql execution node, collects records, and writes output with no TTY dependency.
-
----
-
-## Requirements
-
-### Requirement: Output renderer collects and renders octosql records without TTY dependency
-The `internal/output` package SHALL provide a `Render` function that drives an octosql `execution.Node`, collects all records, applies ORDER BY and LIMIT, and writes results to an `io.Writer` with no dependency on terminal state or `/dev/tty`.
-
-#### Scenario: Table output renders to stdout
-- **WHEN** `Render` is called with format `table` and a node that produces rows
-- **THEN** a formatted table is written to the writer and the function returns nil
-
-#### Scenario: Process exits cleanly after render
-- **WHEN** `kubectl-sql "SELECT name FROM pods"` is run in any shell environment (TTY or not)
-- **THEN** the process prints results and exits 0 without hanging
-
-#### Scenario: COUNT(*) exits cleanly
-- **WHEN** `kubectl-sql "SELECT COUNT(*) FROM pods"` is run
-- **THEN** the process prints the count and exits 0 without hanging
-
----
-
-### Requirement: Output format is controlled by --output flag
-The renderer SHALL support `table` (default), `json`, and `csv` output formats selected via `--output/-o`.
-
-#### Scenario: Default format is table
-- **WHEN** `kubectl-sql "SELECT name FROM pods"` is run without `--output`
-- **THEN** output is a formatted ASCII table
-
-#### Scenario: JSON format outputs JSON array
-- **WHEN** `kubectl-sql --output json "SELECT name FROM pods"` is run
-- **THEN** output is a JSON array of objects, one per row, with field names as keys
-
-#### Scenario: CSV format outputs comma-separated values
-- **WHEN** `kubectl-sql --output csv "SELECT name FROM pods"` is run
-- **THEN** output is CSV with a header row followed by one row per result
-
----
+## ADDED Requirements
 
 ### Requirement: Struct values render as JSON in table and CSV output
 When a result cell holds a struct-typed value, the renderer SHALL convert it to a JSON object whose keys are the struct field names resolved from the schema type. List and tuple values SHALL render as JSON arrays, and map columns (carried as flat key/value lists) SHALL render as JSON objects, matching what `--output json` produces for the same cell. Table output SHALL pretty-print the JSON with 2-space indentation; CSV output SHALL emit compact single-line JSON inside a properly quoted CSV field. Scalar values SHALL render exactly as before. If JSON conversion fails, the renderer SHALL fall back to the octosql string form rather than returning an error.
@@ -73,8 +31,6 @@ When a result cell holds a struct-typed value, the renderer SHALL convert it to 
 - **WHEN** `kubectl-sql --output json "SELECT status FROM pods"` is run
 - **THEN** the output is identical to the behavior before this change
 
----
-
 ### Requirement: Pretty struct rendering can be disabled with --disable-beauty
 The CLI SHALL provide a `--disable-beauty` flag (default `false`). When set, struct-typed cells in table output SHALL render as compact single-line JSON with no ANSI coloring. The flag SHALL have no effect on `--output json` or on scalar cell rendering.
 
@@ -85,8 +41,6 @@ The CLI SHALL provide a `--disable-beauty` flag (default `false`). When set, str
 #### Scenario: Flag default keeps pretty rendering
 - **WHEN** the flag is not passed
 - **THEN** struct cells render as pretty-printed JSON
-
----
 
 ### Requirement: JSON keys are colored in pretty struct cells on TTY
 When rendering pretty-printed struct cells in table output, the renderer SHALL colorize JSON object keys (and only keys — never values, braces, or punctuation) with an ANSI color. Coloring SHALL be applied only when stdout is a TTY, `--no-color` is not set, and `--disable-beauty` is not set. CSV and `--output json` output SHALL never contain ANSI escape codes.
