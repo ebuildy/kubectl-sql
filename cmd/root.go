@@ -11,7 +11,7 @@ import (
 	commandRepl "github.com/ebuildy/kubectl-sql/internal/domain/commands/repl"
 	"github.com/ebuildy/kubectl-sql/internal/port/api"
 	"github.com/ebuildy/kubectl-sql/internal/port/logger"
-	"github.com/ebuildy/kubectl-sql/internal/repl"
+	"github.com/ebuildy/kubectl-sql/internal/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -63,7 +63,7 @@ Example:
 			// No positional query: open the REPL. On a TTY (or with --repl)
 			// this is the interactive prompt; with piped stdin it reads
 			// queries line-by-line in batch mode.
-			interactive := replFlag || repl.StdinIsTTY()
+			interactive := replFlag || utils.StdinIsTTY()
 
 			replCommand, err := commandRepl.NewReplCommand(config)
 			if err != nil {

@@ -1,25 +1,18 @@
-package repl
+package completion
 
 import (
+	"context"
 	"regexp"
 	"sort"
 	"strings"
 	"sync"
+
+	shellCompletionPort "github.com/ebuildy/kubectl-sql/internal/port/autocomplete"
+	k8sport "github.com/ebuildy/kubectl-sql/internal/port/datasources/k8s"
 )
 
 // maxSuggestions caps how many completion candidates are shown at once.
 const maxSuggestions = 50
-
-// CompletionSource supplies the dynamic data the completer needs. It is
-// implemented in cmd/ over discovery + the schema inferrer, and injected via
-// Config so the repl package stays independent of cmd/.
-type CompletionSource interface {
-	// Tables returns the set of queryable resource names (same set as SHOW TABLES).
-	Tables() []string
-	// Columns returns the column names for a given table, or nil if it cannot
-	// be resolved. Implementations should cache; the completer also caches.
-	Columns(table string) []string
-}
 
 // sqlKeywords is the static keyword list offered by Tab completion. Only
 // statements kubectl-sql actually supports are included — it is read-only, so
@@ -44,29 +37,59 @@ var sqlKeywords = []string{
 	"TABLES", "TABLE",
 }
 
-// completer implements readline.AutoCompleter. It offers, for the word under
-// the cursor, SQL keywords, table names (after FROM/JOIN), and column names for
-// the table named in the query's FROM clause.
-type completer struct {
-	src CompletionSource
-
-	mu          sync.Mutex
-	columnCache map[string][]string // table -> columns (session cache)
-}
-
-func newCompleter(src CompletionSource) *completer {
-	return &completer{src: src, columnCache: map[string][]string{}}
-}
-
 // wordRe matches the trailing identifier the user is currently typing.
 var wordRe = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*$`)
 
 // fromRe extracts the first table after FROM (optionally k8s.-qualified).
 var fromRe = regexp.MustCompile(`(?i)\bfrom\s+(?:k8s\.)?([A-Za-z_][A-Za-z0-9_]*)`)
 
+// cliCompletionSource implements shellCompletionPort.ShellCompletionSource over the k8s DataSource port.
+type cliCompletionSource struct {
+	ctx         context.Context
+	ds          k8sport.DataSource
+	mu          sync.Mutex
+	columnCache map[string][]string // table -> columns (session cache)
+}
+
+// NewCompletionSource builds a completion source, returning nil if the cluster
+// connection fails (completion is then disabled).
+func NewShellCompletion(ctx context.Context, dataSource k8sport.DataSource) shellCompletionPort.ShellCompletionRunner {
+	return &cliCompletionSource{ctx: ctx, ds: dataSource, columnCache: make(map[string][]string)}
+}
+
+// Tables returns queryable resource names via the port.
+func (s *cliCompletionSource) Tables() []string {
+	resources, err := s.ds.Resources(s.ctx)
+	if err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(resources))
+	for _, r := range resources {
+		names = append(names, r.Name)
+	}
+	return names
+}
+
+// Columns returns the column names for a table, or nil if it cannot be resolved.
+func (s *cliCompletionSource) Columns(table string) []string {
+	resource, err := s.ds.Resolve(s.ctx, strings.ToLower(table))
+	if err != nil {
+		return nil
+	}
+	fields, err := s.ds.InferSchema(s.ctx, resource)
+	if err != nil {
+		return nil
+	}
+	cols := make([]string, 0, len(fields))
+	for _, f := range fields {
+		cols = append(cols, f.Name)
+	}
+	return cols
+}
+
 // Do implements readline.AutoCompleter. line[:pos] is the text up to the cursor.
 // It returns suffix candidates and the length of the word prefix they extend.
-func (c *completer) Do(line []rune, pos int) ([][]rune, int) {
+func (c *cliCompletionSource) Do(line []rune, pos int) ([][]rune, int) {
 	if pos > len(line) {
 		pos = len(line)
 	}
@@ -102,11 +125,11 @@ func (c *completer) Do(line []rune, pos int) ([][]rune, int) {
 // line up to the cursor (used to decide what the user is typing now); fullLine
 // is the entire line (used to resolve the FROM table, which may appear after the
 // cursor, e.g. "SELECT sta| FROM pods").
-func (c *completer) candidates(prefixText, fullLine, word string) []string {
+func (c *cliCompletionSource) candidates(prefixText, fullLine, word string) []string {
 	lowerWord := strings.ToLower(word)
 
 	if expectsTableName(prefixText) {
-		return matchPrefix(c.tables(), lowerWord)
+		return matchPrefix(c.Tables(), lowerWord)
 	}
 
 	var out []string
@@ -187,26 +210,16 @@ func matchPrefix(items []string, lowerWord string) []string {
 	return out
 }
 
-func (c *completer) tables() []string {
-	if c.src == nil {
-		return nil
-	}
-	return c.src.Tables()
-}
-
 // columns returns the cached column list for table, fetching and caching it on
 // first use (eager prefetch happens via Prefetch; this is the lazy fallback).
-func (c *completer) columns(table string) []string {
-	if c.src == nil {
-		return nil
-	}
+func (c *cliCompletionSource) columns(table string) []string {
 	c.mu.Lock()
 	cols, ok := c.columnCache[table]
 	c.mu.Unlock()
 	if ok {
 		return cols
 	}
-	cols = c.src.Columns(table)
+	cols = c.Columns(table)
 	c.mu.Lock()
 	c.columnCache[table] = cols
 	c.mu.Unlock()
@@ -216,7 +229,7 @@ func (c *completer) columns(table string) []string {
 // Prefetch warms the column cache for the table named in the line, if any, so
 // that subsequent column completions do not block on inference. Safe to call
 // from a separate goroutine.
-func (c *completer) Prefetch(line string) {
+func (c *cliCompletionSource) Prefetch(line string) {
 	table := tableInLine(line)
 	if table == "" {
 		return
@@ -227,5 +240,5 @@ func (c *completer) Prefetch(line string) {
 	if ok {
 		return
 	}
-	_ = c.columns(table) // populates cache
+	_ = c.Columns(table) // populates cache
 }

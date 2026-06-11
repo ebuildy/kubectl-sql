@@ -38,6 +38,11 @@ func NewQueryCommand(config api.Config) (*QueryCommand, error) {
 	return &QueryCommand{config: config, k8s: ds}, nil
 }
 
+// NewQueryCommand builds a QueryCommand from CLI flags. It is the single wiring
+func NewQueryCommandWithDataSource(config api.Config, k8s k8sPort.DataSource) (*QueryCommand, error) {
+	return &QueryCommand{config: config, k8s: k8s}, nil
+}
+
 func (c *QueryCommand) Run(ctx context.Context, query string) error {
 
 	ctx, cancel := context.WithTimeout(ctx, c.config.Timeout)

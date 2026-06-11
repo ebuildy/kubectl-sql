@@ -1,4 +1,4 @@
-package repl
+package readline
 
 import (
 	"context"
@@ -11,9 +11,12 @@ import (
 // non-empty line and writes output to w.
 func TestRunBatch_ExecutesEachQuery(t *testing.T) {
 	var executed []string
-	cfg := Config{
+	var out strings.Builder
+
+	cfg := NewReadlineShell{
 		IsTTY: false,
-		Stdin: strings.NewReader("SELECT name FROM pods\n\nSELECT name FROM nodes\n"),
+		IOIn:  strings.NewReader("SELECT name FROM pods\n\nSELECT name FROM nodes\n"),
+		IOOut: &out,
 		RunQuery: func(_ context.Context, query string, w io.Writer) error {
 			executed = append(executed, query)
 			_, _ = io.WriteString(w, "ran:"+query+"\n")
@@ -21,8 +24,7 @@ func TestRunBatch_ExecutesEachQuery(t *testing.T) {
 		},
 	}
 
-	var out strings.Builder
-	if err := Run(context.Background(), cfg, &out); err != nil {
+	if err := cfg.Run(context.Background()); err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
@@ -42,9 +44,10 @@ func TestRunBatch_ExecutesEachQuery(t *testing.T) {
 // batch — subsequent queries still run.
 func TestRunBatch_ContinuesAfterError(t *testing.T) {
 	var executed []string
-	cfg := Config{
+	cfg := NewReadlineShell{
 		IsTTY: false,
-		Stdin: strings.NewReader("BAD\nGOOD\n"),
+		IOIn:  strings.NewReader("BAD\nGOOD\n"),
+		IOOut: io.Discard,
 		RunQuery: func(_ context.Context, query string, _ io.Writer) error {
 			executed = append(executed, query)
 			if query == "BAD" {
@@ -53,7 +56,7 @@ func TestRunBatch_ContinuesAfterError(t *testing.T) {
 			return nil
 		},
 	}
-	if err := Run(context.Background(), cfg, io.Discard); err != nil {
+	if err := cfg.Run(context.Background()); err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
 	if len(executed) != 2 {
@@ -114,15 +117,16 @@ func TestNormalizeQuery(t *testing.T) {
 // with no trailing semicolon (batch path exercises normalizeQuery).
 func TestSemicolonStrippedBeforeExecution(t *testing.T) {
 	var got string
-	cfg := Config{
+	cfg := NewReadlineShell{
 		IsTTY: false,
-		Stdin: strings.NewReader("SELECT name FROM pods;\n"),
+		IOIn:  strings.NewReader("SELECT name FROM pods;\n"),
+		IOOut: io.Discard,
 		RunQuery: func(_ context.Context, query string, _ io.Writer) error {
 			got = query
 			return nil
 		},
 	}
-	if err := Run(context.Background(), cfg, io.Discard); err != nil {
+	if err := cfg.Run(context.Background()); err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
 	if got != "SELECT name FROM pods" {

@@ -2,27 +2,36 @@ package repl
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 
-	"github.com/ebuildy/kubectl-sql/internal/domain/autocomplete"
+	k8sAdapter "github.com/ebuildy/kubectl-sql/internal/adapter/datasources/k8s"
+	shellCompletionAdapter "github.com/ebuildy/kubectl-sql/internal/adapter/shell/completion"
+	shellAdapter "github.com/ebuildy/kubectl-sql/internal/adapter/shell/readline"
 	commandQuery "github.com/ebuildy/kubectl-sql/internal/domain/commands/query"
 	"github.com/ebuildy/kubectl-sql/internal/port/api"
-	"github.com/ebuildy/kubectl-sql/internal/repl"
+	dataSourcePort "github.com/ebuildy/kubectl-sql/internal/port/datasources/k8s"
 )
 
 type ReplCommand struct {
 	config       api.Config
 	queryCommand *commandQuery.QueryCommand
+	dataSource   dataSourcePort.DataSource
 }
 
 func NewReplCommand(config api.Config) (*ReplCommand, error) {
-	queryCommand, err := commandQuery.NewQueryCommand(config)
+	ds, err := k8sAdapter.New(config.Kubeconfig, config.KubeContext, config.Namespace)
+	if err != nil {
+		return nil, fmt.Errorf("kubectl-sql: connect to cluster: %w", err)
+	}
+
+	queryCommand, err := commandQuery.NewQueryCommandWithDataSource(config, ds)
 	if err != nil {
 		return nil, err
 	}
 
-	return &ReplCommand{config: config, queryCommand: queryCommand}, nil
+	return &ReplCommand{config: config, queryCommand: queryCommand, dataSource: ds}, nil
 }
 
 // runREPL wires the REPL package to the cobra command, forwarding all flags via
@@ -37,9 +46,11 @@ func (r *ReplCommand) Run(ctx context.Context, interactive bool) error {
 		return r.queryCommand.RunWithWriter(queryCtx, query, w)
 	}
 
-	replCfg := repl.Config{
+	// @TODO: arch hexa should be moved to main
+	shellInstance := shellAdapter.NewReadlineShell{
 		RunQuery: runQueryFn,
-		Stdin:    os.Stdin,
+		IOIn:     os.Stdin,
+		IOOut:    os.Stdout,
 		IsTTY:    interactive,
 	}
 
@@ -47,10 +58,10 @@ func (r *ReplCommand) Run(ctx context.Context, interactive bool) error {
 	// best-effort: if the cluster is unreachable, completion is simply disabled
 	// rather than aborting the REPL.
 	if interactive {
-		if src := autocomplete.NewCompletionSource(ctx, r.config); src != nil {
-			replCfg.Completion = src
+		if src := shellCompletionAdapter.NewShellCompletion(ctx, r.dataSource); src != nil {
+			shellInstance.Completion = src
 		}
 	}
 
-	return repl.Run(ctx, replCfg, os.Stdout)
+	return shellInstance.Run(ctx)
 }

@@ -6,7 +6,7 @@
 //
 // The package has no dependency on cmd/ — the query runner is passed in as a
 // function value (Config.RunQuery) to avoid an import cycle.
-package repl
+package readline
 
 import (
 	"bufio"
@@ -19,9 +19,10 @@ import (
 	"syscall"
 
 	"github.com/chzyer/readline"
-	"golang.org/x/term"
 
 	"github.com/ebuildy/kubectl-sql/internal/port/logger"
+
+	shellCompletionPort "github.com/ebuildy/kubectl-sql/internal/port/autocomplete"
 )
 
 const prompt = "sql> "
@@ -34,42 +35,40 @@ type RunQueryFunc func(ctx context.Context, query string, w io.Writer) error
 // Config carries everything the REPL needs that originates from CLI flags.
 // All query-execution concerns are encapsulated in RunQuery, so the REPL stays
 // agnostic of kubeconfig/context/namespace/output details.
-type Config struct {
+type NewReadlineShell struct {
 	// RunQuery executes one query against the cluster and renders the result.
 	RunQuery RunQueryFunc
-	// Stdin is the input source; defaults to os.Stdin when nil.
-	Stdin io.Reader
+	//
+	IOIn io.Reader
+	//
+	IOOut io.Writer
 	// IsTTY reports whether interactive mode should be used. When false, the
 	// REPL reads queries line-by-line without a prompt (batch mode).
 	IsTTY bool
 	// Completion, when non-nil, enables Tab autocomplete in interactive mode
 	// for SQL keywords, table names, and column names.
-	Completion CompletionSource
+	Completion shellCompletionPort.ShellCompletionRunner
 }
 
 // Run starts the REPL. If the input is not a TTY it falls back to batch mode
 // (line-by-line stdin, no prompt). Returns nil on a clean exit (\q, EOF, SIGINT).
-func Run(ctx context.Context, cfg Config, w io.Writer) error {
-	if cfg.RunQuery == nil {
+func (s *NewReadlineShell) Run(ctx context.Context) error {
+	if s.RunQuery == nil {
 		return fmt.Errorf("repl: RunQuery is required")
 	}
-	if cfg.Stdin == nil {
-		cfg.Stdin = os.Stdin
-	}
-
-	if !cfg.IsTTY {
+	if !s.IsTTY {
 		logger.FromContext(ctx).Info("repl started", logger.String("mode", "batch"))
-		return runBatch(ctx, cfg, w)
+		return s.runBatch(ctx)
 	}
 	logger.FromContext(ctx).Info("repl started", logger.String("mode", "interactive"))
-	return runInteractive(ctx, cfg, w)
+	return s.runInteractive(ctx)
 }
 
 // runBatch reads queries from stdin one line at a time, executing each. Empty
 // lines are skipped. It stops on EOF and returns nil. Per-query errors are
 // printed to stderr but do not abort the batch.
-func runBatch(ctx context.Context, cfg Config, w io.Writer) error {
-	scanner := bufio.NewScanner(cfg.Stdin)
+func (s *NewReadlineShell) runBatch(ctx context.Context) error {
+	scanner := bufio.NewScanner(s.IOIn)
 	// Allow long queries (default token size is 64KiB which is plenty, but be safe).
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
@@ -78,7 +77,7 @@ func runBatch(ctx context.Context, cfg Config, w io.Writer) error {
 			continue
 		}
 		logger.FromContext(ctx).Debug("repl executing query", logger.String("query", query))
-		if err := cfg.RunQuery(ctx, query, w); err != nil {
+		if err := s.RunQuery(ctx, query, s.IOOut); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		}
 	}
@@ -86,21 +85,14 @@ func runBatch(ctx context.Context, cfg Config, w io.Writer) error {
 }
 
 // runInteractive drives the readline-backed prompt loop with in-memory history.
-func runInteractive(ctx context.Context, cfg Config, w io.Writer) error {
-	var comp *completer
-	if cfg.Completion != nil {
-		comp = newCompleter(cfg.Completion)
-	}
-
+func (s *NewReadlineShell) runInteractive(ctx context.Context) error {
 	rlCfg := &readline.Config{
 		Prompt:          prompt,
-		Stdin:           io.NopCloser(cfg.Stdin),
+		Stdin:           io.NopCloser(s.IOIn),
 		HistoryFile:     "", // in-memory only
 		InterruptPrompt: "^C",
 		EOFPrompt:       "",
-	}
-	if comp != nil {
-		rlCfg.AutoComplete = comp
+		AutoComplete:    s.Completion,
 	}
 
 	rl, err := readline.NewEx(rlCfg)
@@ -129,7 +121,7 @@ func runInteractive(ctx context.Context, cfg Config, w io.Writer) error {
 			continue
 		}
 
-		if handled, exit := handleSlashCommand(query, w); handled {
+		if handled, exit := handleSlashCommand(query, s.IOOut); handled {
 			if exit {
 				return nil
 			}
@@ -138,12 +130,12 @@ func runInteractive(ctx context.Context, cfg Config, w io.Writer) error {
 
 		// Warm the column cache for this query's FROM table so subsequent
 		// column completions are instant.
-		if comp != nil {
-			comp.Prefetch(query)
+		if s.Completion != nil {
+			s.Completion.Prefetch(query)
 		}
 
 		logger.FromContext(ctx).Debug("repl executing query", logger.String("query", query))
-		if err := runOneInteractive(ctx, cfg, query, w); err != nil {
+		if err := s.runOneInteractive(ctx, query); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		}
 	}
@@ -152,7 +144,7 @@ func runInteractive(ctx context.Context, cfg Config, w io.Writer) error {
 // runOneInteractive executes a single query with a cancellable per-query
 // context so that Ctrl-C interrupts the running query and returns to the prompt
 // rather than killing the whole REPL.
-func runOneInteractive(ctx context.Context, cfg Config, query string, w io.Writer) error {
+func (s *NewReadlineShell) runOneInteractive(ctx context.Context, query string) error {
 	queryCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -162,7 +154,7 @@ func runOneInteractive(ctx context.Context, cfg Config, query string, w io.Write
 
 	done := make(chan error, 1)
 	go func() {
-		done <- cfg.RunQuery(queryCtx, query, w)
+		done <- s.RunQuery(queryCtx, query, s.IOOut)
 	}()
 
 	select {
@@ -206,9 +198,4 @@ func normalizeQuery(line string) string {
 	q := strings.TrimSpace(line)
 	q = strings.TrimSuffix(q, ";")
 	return strings.TrimSpace(q)
-}
-
-// StdinIsTTY reports whether the process stdin is an interactive terminal.
-func StdinIsTTY() bool {
-	return term.IsTerminal(int(os.Stdin.Fd()))
 }
