@@ -8,6 +8,7 @@ import (
 	k8sschema "k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 
+	"github.com/ebuildy/kubectl-sql/internal/port/logger"
 	"github.com/ebuildy/kubectl-sql/internal/port/schema"
 )
 
@@ -61,14 +62,20 @@ func (s *sampleInferrer) Provide(ctx context.Context, gvr k8sschema.GroupVersion
 
 	// Union the fields inferred from each sampled object so dynamic keys present on
 	// only some objects (e.g. metadata.labels.app) are still discovered.
+	log := logger.FromContext(ctx)
 	root := &schema.Field{Name: "root", Type: schema.FieldTypeObject}
 	for _, obj := range items {
 		fields := schema.InferFields(obj)
 		if len(fields) == 0 {
 			continue
 		}
+		// A genuine type conflict between two samples (e.g. a CRD field that's an
+		// int on one object and a string on another) must not discard everything
+		// merged from the OTHER samples — skip this one object's contribution and
+		// keep going.
 		if err := mergeSchemas(root, fields); err != nil {
-			return nil, fmt.Errorf("schema: sample merge %s: %w", gvr.Resource, err)
+			log.Debug("schema: sample merge skipped", logger.String("gvr", gvr.Resource), logger.String("err", err.Error()))
+			continue
 		}
 	}
 

@@ -12,10 +12,11 @@ func TestRewriteDottedFields_ArrowNotation(t *testing.T) {
 		{"SELECT status.phase FROM pods", "SELECT status->phase FROM pods"},
 		{"SELECT name, metadata.labels.app FROM pods", "SELECT name, metadata->labels->app FROM pods"},
 		{"SELECT name FROM k8s.pods", "SELECT name FROM k8s.pods"},
-		// Array index paths → flat underscore names (cannot use -> with [N])
-		{"SELECT spec.volumes[0] FROM pods", "SELECT spec_volumes_0 FROM pods"},
-		{"SELECT spec.volumes[0].configMap FROM pods", "SELECT spec_volumes_0_configMap FROM pods"},
-		{"SELECT spec.containers[1].name FROM pods", "SELECT spec_containers_1_name FROM pods"},
+		// Struct access followed by [N]: octosql's native "[]" list-indexing
+		// operator can't round-trip through sqlparser.String(), so it's
+		// rewritten to a call to array_get() instead.
+		{"SELECT spec->volumes[0] FROM pods", "SELECT array_get(spec->volumes, 0) FROM pods"},
+		{"SELECT spec->containers[1]->name FROM pods", "SELECT array_get(spec->containers, 1)->name FROM pods"},
 	}
 	for _, tc := range cases {
 		got := rewriteDottedFields(tc.input)
@@ -52,8 +53,6 @@ func TestRewriteDottedFields_MapKeyAccess(t *testing.T) {
 		{"SELECT metadata.labels['app'] FROM pods", "SELECT map_get(metadata->labels, 'app') FROM pods"},
 		{`SELECT metadata.labels["app"] FROM pods`, "SELECT map_get(metadata->labels, 'app') FROM pods"},
 		{"SELECT name FROM pods WHERE metadata.labels['app'] = 'nginx'", "SELECT name FROM pods WHERE map_get(metadata->labels, 'app') = 'nginx'"},
-		// Numeric index is NOT map access — stays the flat underscore form.
-		{"SELECT spec.volumes[0] FROM pods", "SELECT spec_volumes_0 FROM pods"},
 	}
 	for _, tc := range cases {
 		got := rewriteDottedFields(tc.input)

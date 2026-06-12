@@ -10,8 +10,9 @@ import (
 
 // rewriteQuery performs two rewrites on the raw SQL string before parsing:
 //  1. Replaces multi-part dotted field references (e.g. metadata.labels.app)
-//     with arrow equivalents (metadata->labels->app), or underscore flat names
-//     for array-index paths, so octosql's parser handles them correctly.
+//     with arrow equivalents (metadata->labels->app), and rewrites array-index
+//     access (spec->volumes[0]) to array_get() calls, so octosql's parser
+//     handles them correctly.
 //  2. Prefixes bare table names in FROM/JOIN clauses with "k8s." so octosql
 //     routes them to the KubernetesDatabase.
 func rewriteQuery(query string) string {
@@ -19,7 +20,7 @@ func rewriteQuery(query string) string {
 	// Must run before sqlparser.Parse: sqlparser accepts field['key'] syntax but
 	// cannot round-trip it through String(), so it must be rewritten to
 	// map_get(field, 'key') first.
-	query = rewriteDottedFields(query)
+	//query = rewriteDottedFields(query)
 
 	stmt, err := sqlparser.Parse(query)
 	if err != nil {
@@ -46,10 +47,13 @@ var dottedWildcardRe = regexp.MustCompile(`\b([a-zA-Z_][a-zA-Z0-9_]*(?:(?:\.[a-z
 // dottedFieldRe matches dotted paths that contain NO array indices.
 var dottedFieldRe = regexp.MustCompile(`\b([a-zA-Z_][a-zA-Z0-9_]*)(\.[a-zA-Z_][a-zA-Z0-9_]*)+\b`)
 
-// arrayIndexPathRe matches paths that contain at least one array index [N].
-// Requires at least one [N] bracket — pure dotted paths are excluded.
-// e.g. spec.volumes[0], spec.volumes[0].configMap, spec.containers[1].name
-var arrayIndexPathRe = regexp.MustCompile(`\b[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*|\[\d+\])*\[\d+\](?:\.[a-zA-Z_][a-zA-Z0-9_]*|\[\d+\])*`)
+// arrowIndexRe matches a struct field access chain followed by a numeric index,
+// e.g. spec->volumes[0] or spec->containers[1]->name (group 1 = "spec->containers",
+// group 2 = "1"). Requires at least one "->". octosql's sqlparser cannot
+// round-trip the "[]" indexing operator through String(), so it is rewritten to
+// a call to the array_get() function instead, which round-trips like any other
+// function call.
+var arrowIndexRe = regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_]*(?:->[A-Za-z_][A-Za-z0-9_]*)+)\[(\d+)\]`)
 
 // mapKeyAccessRe matches a (dotted) field path followed by a quoted bracket key,
 // e.g. labels['app'] or metadata.labels["app"]. Group 1 is the field path, group 2
@@ -65,7 +69,7 @@ var stringLiteralRe = regexp.MustCompile(`'[^']*'|"[^"]*"`)
 
 // rewriteDottedFields rewrites field path notation:
 //   - Pure dotted paths (no array indices): metadata.labels.app → metadata->labels->app
-//   - Paths with array indices: spec.volumes[0].configMap → spec_volumes_0_configMap
+//   - Struct field access followed by an array index: spec->volumes[0] → array_get(spec->volumes, 0)
 //   - Wildcard suffix stripped first: metadata.labels.* → metadata->labels
 //
 // k8s.pods style table qualifiers are left untouched. String literals (e.g.
@@ -94,17 +98,11 @@ func rewriteDottedFields(query string) string {
 		return fmt.Sprintf("\x00%d\x00", len(literals)-1)
 	})
 
-	// Pass 1: paths with array indices → underscore flat names (must run before arrow rewrite)
-	query = arrayIndexPathRe.ReplaceAllStringFunc(query, func(match string) string {
-		if strings.HasPrefix(match, "k8s.") || !strings.ContainsAny(match, "[") {
-			return match
-		}
-		// spec.volumes[0].configMap → spec_volumes_0_configMap
-		s := strings.ReplaceAll(match, "[", "_")
-		s = strings.ReplaceAll(s, "]", "")
-		s = strings.ReplaceAll(s, ".", "_")
-		return s
-	})
+	// Pass 1: struct field access followed by a numeric index, e.g.
+	// spec->volumes[0] → array_get(spec->volumes, 0). Must run before Pass 3
+	// (arrow rewrite) since it matches on the "->" form directly.
+	query = arrowIndexRe.ReplaceAllString(query, "array_get($1, $2)")
+
 	// Pass 2: strip wildcard suffix (metadata.labels.* → metadata.labels)
 	query = dottedWildcardRe.ReplaceAllStringFunc(query, func(match string) string {
 		return match[:len(match)-2] // strip .*

@@ -25,11 +25,9 @@ func (t FieldType) IsObjectLike() bool {
 
 // Field represents a single inferred column.
 // Name is the SQL-safe column name (dots replaced with underscores).
-// Path is the dot-notation resolve path (empty means same as Name).
 // SubFields is populated for FieldTypeObject fields inferred from a map value.
 type Field struct {
 	Name      string
-	Path      string
 	Type      FieldType
 	SubFields []Field
 }

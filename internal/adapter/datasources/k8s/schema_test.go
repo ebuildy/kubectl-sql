@@ -50,7 +50,7 @@ func TestSchema_MergeSchemas(t *testing.T) {
 	assert.Nil(t, err, "unexpected error merging schemas")
 
 	resultAsJSON, _ := json.Marshal(root.SubFields)
-	expected := `[{"Name":"metadata","Path":"","Type":"object","SubFields":[{"Name":"name","Path":"","Type":"string","SubFields":null},{"Name":"namespace","Path":"","Type":"string","SubFields":null},{"Name":"labels","Path":"","Type":"object","SubFields":null}]},{"Name":"status","Path":"","Type":"object","SubFields":null},{"Name":"spec","Path":"","Type":"object","SubFields":[{"Name":"name","Path":"","Type":"string","SubFields":null}]}]`
+	expected := `[{"Name":"metadata","Type":"object","SubFields":[{"Name":"name","Type":"string","SubFields":null},{"Name":"namespace","Type":"string","SubFields":null},{"Name":"labels","Type":"object","SubFields":null}]},{"Name":"status","Type":"object","SubFields":null},{"Name":"spec","Type":"object","SubFields":[{"Name":"name","Type":"string","SubFields":null}]}]`
 
 	assert.JSONEq(t, expected, string(resultAsJSON), "unexpected merged schema")
 

@@ -20,6 +20,7 @@ func FunctionMap() map[string]physical.FunctionDetails {
 		"map_get":          mapGetFunction(),
 		"map_contains_key": mapContainsKeyFunction(),
 		"map_values":       mapValuesFunction(),
+		"array_get":        arrayGetFunction(),
 	}
 }
 
@@ -314,6 +315,41 @@ func mapValuesFunction() physical.FunctionDetails {
 						elems = append(elems, v[0].List[i])
 					}
 					return octosql.NewList(elems), nil
+				},
+			},
+		},
+	}
+}
+
+// arrayGetFunction implements array_get(list, index) -> element|null: returns
+// the element at index, or NULL if index is out of range. This backs the
+// field->subfield[N] access syntax (see rewriteDottedFields): octosql's native
+// "[]" indexing operator (list[index]) has the same semantics but cannot
+// round-trip through sqlparser.String(), so the rewrite calls this function
+// instead.
+//
+// The output is always typed Any|Null, regardless of the list's element type.
+// Our list columns carry JSON-encoded string elements (see fieldToOctoType),
+// so a single extracted element is JSON, not a plain scalar; the Any marker
+// tells the renderer (valueToNativeTyped) to JSON-decode it, just as it would
+// when rendering the element in place inside the full list.
+func arrayGetFunction() physical.FunctionDetails {
+	return physical.FunctionDetails{
+		Descriptors: []physical.FunctionDescriptor{
+			{
+				Strict: true,
+				TypeFn: func(types []octosql.Type) (octosql.Type, bool) {
+					if len(types) != 2 || types[0].TypeID != octosql.TypeIDList || types[1].TypeID != octosql.TypeIDInt {
+						return octosql.Type{}, false
+					}
+					return octosql.TypeSum(octosql.Any, octosql.Null), true
+				},
+				Function: func(v []octosql.Value) (octosql.Value, error) {
+					idx := v[1].Int
+					if idx < 0 || idx >= int64(len(v[0].List)) {
+						return octosql.NewNull(), nil
+					}
+					return v[0].List[idx], nil
 				},
 			},
 		},

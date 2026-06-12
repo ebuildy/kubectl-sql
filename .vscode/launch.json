@@ -10,7 +10,7 @@
             "request": "launch",
             "mode": "auto",
             "program": "main.go",
-            "args": ["-vv", "select name, map_get(data, 'config.json'), length(map_get(data, 'config.json')) from cm where name = 'local-path-config'"]
+            "args": ["-vv", "SELECT spec->containers[0]->name FROM k8s.pods limit 1"]
         }
     ]
 }
