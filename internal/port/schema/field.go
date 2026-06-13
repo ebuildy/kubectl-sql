@@ -85,11 +85,30 @@ func toFieldJSON(fields []Field) []fieldJSON {
 }
 
 // MarshalSubFieldsJSON recursively encodes fields (typically a Field's
-// SubFields) as JSON, retaining only Name, Type, and SubFields at every depth.
+// SubFields) as pretty-printed JSON, retaining only Name, Type, and SubFields
+// at every depth.
 func MarshalSubFieldsJSON(fields []Field) (string, error) {
-	b, err := json.Marshal(toFieldJSON(fields))
+	b, err := json.MarshalIndent(toFieldJSON(fields), "", "  ")
 	if err != nil {
 		return "", err
 	}
 	return string(b), nil
+}
+
+// LimitDepth returns a copy of fields with SubFields truncated beyond
+// maxDepth levels, for callers that need to bound how deeply nested schemas
+// are rendered (e.g. DESCRIBE TABLE's SCHEMA column).
+func LimitDepth(fields []Field, maxDepth int) []Field {
+	if maxDepth <= 0 || len(fields) == 0 {
+		return nil
+	}
+	out := make([]Field, len(fields))
+	for i, f := range fields {
+		out[i] = Field{
+			Name:      f.Name,
+			Type:      f.Type,
+			SubFields: LimitDepth(f.SubFields, maxDepth-1),
+		}
+	}
+	return out
 }

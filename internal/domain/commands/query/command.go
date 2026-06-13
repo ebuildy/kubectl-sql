@@ -18,6 +18,7 @@ import (
 	"github.com/ebuildy/kubectl-sql/internal/port/logger"
 	"github.com/ebuildy/kubectl-sql/internal/port/schema"
 	sqlPort "github.com/ebuildy/kubectl-sql/internal/port/sql"
+	"github.com/ebuildy/kubectl-sql/internal/utils"
 	"github.com/olekukonko/tablewriter"
 	"golang.org/x/term"
 )
@@ -142,6 +143,44 @@ func (c *QueryCommand) runWatch(ctx context.Context, query string) error {
 	}
 }
 
+// describeTableSchemaDepth bounds how many levels of nested fields are shown
+// in the SCHEMA column of DESCRIBE TABLE output.
+const describeTableSchemaDepth = 4
+
+// describeTableFieldOrder lists well-known Kubernetes field names in the
+// order DESCRIBE TABLE should display them. Every Kubernetes object shares
+// this same top-level (and metadata) shape, so hardcoding the order keeps
+// output stable and predictable across resource kinds. The same order is
+// applied to a field's own SubFields, since metadata's subfields (name,
+// namespace, labels, annotations) reuse these names. Fields not listed here
+// keep their existing (inferred) order, appended after listed fields.
+var describeTableFieldOrder = []string{
+	"apiVersion", "kind", "metadata", "name", "namespace",
+	"annotations", "labels", "spec", "data", "stringData", "status",
+}
+
+// fieldOrderIndex returns name's position in describeTableFieldOrder, or
+// len(describeTableFieldOrder) if it is not a well-known field.
+func fieldOrderIndex(name string) int {
+	for i, n := range describeTableFieldOrder {
+		if n == name {
+			return i
+		}
+	}
+	return len(describeTableFieldOrder)
+}
+
+// sortDescribeFields returns a copy of fields ordered by describeTableFieldOrder,
+// preserving the relative order of fields not in that list.
+func sortDescribeFields(fields []schema.Field) []schema.Field {
+	sorted := make([]schema.Field, len(fields))
+	copy(sorted, fields)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return fieldOrderIndex(sorted[i].Name) < fieldOrderIndex(sorted[j].Name)
+	})
+	return sorted
+}
+
 func (c *QueryCommand) runDescribeTable(ctx context.Context, resource string) error {
 	r, err := c.k8s.Resolve(ctx, resource)
 	if err != nil {
@@ -156,21 +195,46 @@ func (c *QueryCommand) runDescribeTable(ctx context.Context, resource string) er
 		}
 	}
 
+	colorKeys := isTerminal(os.Stdout) && !c.config.NoColor && !c.config.DisableBeauty
+
 	table := tablewriter.NewWriter(c.config.Out)
 	table.SetHeader([]string{"COLUMN", "TYPE", "SCHEMA"})
 	table.SetAutoFormatHeaders(false)
 	table.SetAutoWrapText(false)
-	for _, f := range fields {
-		var fieldSchema string
+	for _, f := range sortDescribeFields(fields) {
 		if f.Type.IsObjectLike() && len(f.SubFields) > 0 {
-			fieldSchema, err = schema.MarshalSubFieldsJSON(f.SubFields)
-			if err != nil {
-				return fmt.Errorf("kubectl-sql: encode schema for %q: %w", f.Name, err)
+			for _, sf := range sortDescribeFields(f.SubFields) {
+				if err := appendDescribeRow(table, f.Name+"->"+sf.Name, sf, colorKeys); err != nil {
+					return err
+				}
 			}
+			continue
 		}
-		table.Append([]string{f.Name, string(f.Type), fieldSchema})
+		if err := appendDescribeRow(table, f.Name, f, colorKeys); err != nil {
+			return err
+		}
 	}
 	table.Render()
+	return nil
+}
+
+// appendDescribeRow renders a single DESCRIBE TABLE row for field f under the
+// given column name (which may be a "parent->child" path for depth-2 fields).
+// When colorKeys is set, JSON object keys in the SCHEMA cell are ANSI-colored
+// to match the "beauty" rendering used for query result struct cells.
+func appendDescribeRow(table *tablewriter.Table, name string, f schema.Field, colorKeys bool) error {
+	var fieldSchema string
+	if f.Type.IsObjectLike() && len(f.SubFields) > 0 {
+		s, err := schema.MarshalSubFieldsJSON(schema.LimitDepth(f.SubFields, describeTableSchemaDepth))
+		if err != nil {
+			return fmt.Errorf("kubectl-sql: encode schema for %q: %w", name, err)
+		}
+		if colorKeys {
+			s = utils.ColorizeJSONKeys(s)
+		}
+		fieldSchema = s
+	}
+	table.Append([]string{name, string(f.Type), fieldSchema})
 	return nil
 }
 

@@ -12,6 +12,7 @@ import (
 	"github.com/cube2222/octosql/execution"
 	"github.com/cube2222/octosql/octosql"
 	"github.com/cube2222/octosql/physical"
+	"github.com/ebuildy/kubectl-sql/internal/utils"
 )
 
 // mockNode is a test execution.Node that emits a fixed set of rows.
@@ -189,10 +190,10 @@ func TestRenderTableStructColorKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, ansiCyan+`"phase"`+ansiReset+":") {
+	if !strings.Contains(out, utils.AnsiCyan+`"phase"`+utils.AnsiReset+":") {
 		t.Errorf("keys should be ANSI cyan: %q", out)
 	}
-	if strings.Contains(out, ansiCyan+`"Running"`) {
+	if strings.Contains(out, utils.AnsiCyan+`"Running"`) {
 		t.Errorf("values must not be colored: %q", out)
 	}
 }
@@ -276,7 +277,7 @@ func TestRenderTableListPretty(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, ansiCyan+`"name"`+ansiReset+`: "c1"`) {
+	if !strings.Contains(out, utils.AnsiCyan+`"name"`+utils.AnsiReset+`: "c1"`) {
 		t.Errorf("list cell should be pretty JSON array with decoded, key-colored elements: %q", out)
 	}
 }
@@ -333,20 +334,6 @@ func TestRenderTableTuple(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), `["a",1]`) {
 		t.Errorf("tuple cell should be a JSON array: %q", buf.String())
-	}
-}
-
-func TestColorizeJSONKeys(t *testing.T) {
-	in := "{\n  \"phase\": \"Running\",\n  \"message\": \"weird \\\" : value\"\n}"
-	out := colorizeJSONKeys(in)
-	if got := strings.Count(out, ansiCyan); got != 2 {
-		t.Errorf("expected exactly 2 colored keys, got %d: %q", got, out)
-	}
-	if !strings.Contains(out, ansiCyan+`"phase"`+ansiReset+":") {
-		t.Errorf("key not colored: %q", out)
-	}
-	if !strings.Contains(out, `"weird \" : value"`) {
-		t.Errorf("value must stay uncolored and unmodified: %q", out)
 	}
 }
 

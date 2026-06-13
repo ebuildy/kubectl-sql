@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"regexp"
 	"sort"
 	"time"
 
 	"github.com/cube2222/octosql/execution"
 	"github.com/cube2222/octosql/octosql"
 	"github.com/cube2222/octosql/physical"
+	"github.com/ebuildy/kubectl-sql/internal/utils"
 	"github.com/olekukonko/tablewriter"
 )
 
@@ -114,7 +114,7 @@ func renderTable(w io.Writer, fields []string, schemaFields []physical.SchemaFie
 			if i < len(schemaFields) {
 				cell := valueToStringTyped(v, schemaFields[i].Type, pretty)
 				if colorKeys && pretty && rendersAsJSON(v, schemaFields[i].Type) {
-					cell = colorizeJSONKeys(cell)
+					cell = utils.ColorizeJSONKeys(cell)
 				}
 				cells[i] = cell
 			} else {
@@ -250,22 +250,6 @@ func valueToStringTyped(v octosql.Value, t octosql.Type, pretty bool) string {
 		return string(b)
 	}
 	return valueToString(v)
-}
-
-const (
-	ansiCyan  = "\x1b[36m"
-	ansiReset = "\x1b[0m"
-)
-
-// jsonKeyPattern matches an object key at the start of a line of indented
-// JSON. Anchoring on the line start means quote-colon sequences inside string
-// values can never match.
-var jsonKeyPattern = regexp.MustCompile(`(?m)^(\s*)("(?:[^"\\]|\\.)*")(\s*:)`)
-
-// colorizeJSONKeys wraps the object keys of indented JSON in ANSI cyan,
-// leaving values, braces, and punctuation uncolored.
-func colorizeJSONKeys(s string) string {
-	return jsonKeyPattern.ReplaceAllString(s, "${1}"+ansiCyan+"${2}"+ansiReset+"${3}")
 }
 
 func valueToString(v octosql.Value) string {
