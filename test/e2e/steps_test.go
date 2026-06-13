@@ -22,10 +22,13 @@ type testContext struct {
 	exitCode int
 }
 
-func binaryPath() string {
+func repoRoot() string {
 	_, file, _, _ := runtime.Caller(0)
-	root := filepath.Join(filepath.Dir(file), "..", "..")
-	return filepath.Join(root, "bin", "kubectl-sql")
+	return filepath.Join(filepath.Dir(file), "..", "..")
+}
+
+func binaryPath() string {
+	return filepath.Join(repoRoot(), "bin", "kubectl-sql")
 }
 
 func (tc *testContext) iRun(command string) error {
@@ -45,6 +48,7 @@ func (tc *testContext) runCommand(binary string, args ...string) error {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, binary, args...) //nolint:gosec
+	cmd.Dir = repoRoot()
 	cmd.Env = append(os.Environ(), "TERM=dumb")
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf

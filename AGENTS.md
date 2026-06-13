@@ -96,6 +96,8 @@ table in sync with `openspec/specs/`. A `PostToolUse` hook
 (`.claude/hooks/after-opsx-archive.sh`) reminds the assistant to do this when it detects the
 archive `mv` step — but it must still be run even if entries don't change (it is idempotent).
 
+End propose a git commit message.
+
 ### When to create a change
 
 - Adding or modifying SQL grammar (new clause, function, operator)
@@ -275,6 +277,13 @@ SELECT * FROM pods WHERE LABEL 'app' = 'nginx'
 
 -- Annotation selector
 SELECT * FROM pods WHERE ANNOTATION 'team' = 'platform'
+
+-- Local JSON Lines file sources (.json, .jsonl, .ndjson)
+SELECT * FROM notes.json
+SELECT * FROM notes.jsonl
+
+-- JOIN two JSON Lines files on a shared key
+SELECT n.pod, n.note, s.status FROM notes.json n JOIN status.json s ON n.pod = s.pod
 ```
 
 ---
@@ -338,6 +347,12 @@ kubectl sql "SELECT name, namespace, status->replicas, status->availableReplicas
 
 # Show execution plan (no API calls)
 kubectl sql --explain "SELECT name FROM pods WHERE status->phase = 'Pending'"
+
+# Query a local JSON Lines file
+kubectl sql "SELECT * FROM notes.json"
+
+# Join two local JSON Lines files on a shared key
+kubectl sql "SELECT n.pod, n.note, s.status FROM notes.json n JOIN status.json s ON n.pod = s.pod"
 ```
 
 ---

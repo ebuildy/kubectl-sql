@@ -176,6 +176,96 @@ DESCRIBE TABLE pods
 DESCRIBE TABLE deployments
 ```
 
+### JSON file sources
+
+A `FROM` reference whose table name ends in `.json`, `.jsonl`, or `.ndjson` is read as a
+local **JSON Lines** file (one JSON object per line, not a pretty-printed JSON
+document). The column schema is inferred by sampling the file, and the result
+supports the same `SELECT` column lists, `*`, `WHERE`, `ORDER BY`, `LIMIT`, and
+output formats as Kubernetes-backed tables.
+
+```sql
+-- Read every line of notes.json as a row
+SELECT * FROM notes.json
+
+-- .jsonl and .ndjson are read the same way
+SELECT * FROM notes.jsonl
+SELECT * FROM notes.ndjson
+
+-- Column selection and filtering work like any other table
+SELECT pod, note FROM notes.json WHERE pod = 'nginx-1'
+
+-- JOIN two JSON file tables together
+SELECT n.pod, n.note, s.status
+FROM notes.json n JOIN status.json s ON n.pod = s.pod
+```
+
+Paths may be relative to the current directory (`fixtures/notes.json`), explicitly
+relative (`./notes.json`), or absolute (`/tmp/notes.json`).
+
+Each output column is rendered with a `<table>.<field>` prefix, the same convention
+used for Kubernetes tables (`pods.name`). For a `.json` file the prefix defaults to
+the file's basename (e.g. `notes.pod`); for `.jsonl`/`.ndjson` files the prefix
+defaults to the literal extension (`jsonl.pod`/`ndjson.pod`) instead, a quirk of how
+`json` is recognized as a SQL keyword but `jsonl`/`ndjson` are not. Use `AS <alias>`
+(e.g. `FROM notes.jsonl AS notes`) for a predictable, consistent prefix across all
+three extensions.
+
+kubectl-sql registers a Kubernetes database under the name `k8s`, so a file literally
+named `k8s.json` (or `k8s.jsonl`/`k8s.ndjson`) would otherwise be interpreted as
+resource `json` in the `k8s` database. Reference such a file with a leading `./`:
+`FROM ./k8s.json`.
+
+> **Note:** `JOIN` between a Kubernetes-backed table (e.g. `pods`) and a `.json`/
+> `.jsonl`/`.ndjson` file is not yet supported — tracked as a follow-up.
+
+## Tips
+
+### Turn `kubectl get -o json` output into JSON Lines
+
+`kubectl get <resource> -o json` returns a single JSON document with the matching
+objects nested under `.items`. Pipe it through `jq -c '.items[]'` to flatten that
+array into one compact JSON object per line — exactly the JSON Lines format the
+[JSON file datasource](#json-file-sources) expects:
+
+```bash
+# Snapshot all pods (cluster-wide) to a JSON Lines file
+kubectl get pods -A -o json | jq -c '.items[]' > pods.jsonl
+
+# Query the snapshot — no live cluster access needed
+kubectl sql "SELECT metadata->name AS name, metadata->namespace AS namespace, status->phase FROM pods.jsonl"
+```
+
+This is handy for querying a point-in-time snapshot offline, or for re-running
+queries against it without hitting the API server again.
+
+> Note: the `name`/`namespace`/`labels`/`annotations` shortcut columns available on
+> `k8s.*` tables (e.g. `pods.name`) are synthesized by kubectl-sql's Kubernetes
+> adapter and aren't present in raw `kubectl get -o json` output. Use the underlying
+> `metadata->name` / `metadata->namespace` paths (with `AS` to rename) when querying
+> a JSON Lines snapshot instead.
+
+### Flatten fields with `jq` before `JOIN`ing snapshots
+
+For `JOIN`s — e.g. diffing two snapshots taken at different times — project the
+fields you need into a flat top-level shape with `jq` so the join key (and any
+compared columns) are plain fields, not `->` expressions:
+
+```bash
+snapshot() {
+  kubectl get pods -A -o json |
+    jq -c '.items[] | {name: .metadata.name, namespace: .metadata.namespace, phase: .status.phase}'
+}
+
+snapshot > before.jsonl
+# ... time passes, or changes are rolled out ...
+snapshot > after.jsonl
+
+kubectl sql "SELECT b.name, b.namespace, b.phase AS before_phase, a.phase AS after_phase
+              FROM before.jsonl b JOIN after.jsonl a ON b.name = a.name
+              WHERE b.phase != a.phase"
+```
+
 ## Recipes
 
 ```bash
@@ -243,6 +333,7 @@ the source of truth for how each feature works.
 | [DESCRIBE TABLE](openspec/specs/describe-table/spec.md) | Lists all columns and types for a resource via `DESCRIBE TABLE <resource>`, inferred from OpenAPI or a sample object. |
 | [Dynamic Schema Inference](openspec/specs/dynamic-schema/spec.md) | Defines how resource schemas are inferred at query time, driving column discovery for `SELECT *`, `DESCRIBE TABLE`, and typed filtering. |
 | [envtest Integration Tests](openspec/specs/envtest-e2e/spec.md) | Behavioral contract for the envtest-backed integration suite that exercises the full SQL query path without a live cluster. |
+| [JSON File Datasource](openspec/specs/json-file-datasource/spec.md) | Defines querying local JSON Lines files (`.json`/`.jsonl`/`.ndjson`) via `FROM <path>`, including `JOIN`s between files. |
 | [Kubernetes Datasource](openspec/specs/k8s-datasource/spec.md) | Defines how resource kinds are resolved, fetched, mapped to rows, and namespace-scoped by the Kubernetes datasource layer. |
 | [Kubernetes Data-Source Port](openspec/specs/k8s-datasource-port/spec.md) | Defines the hexagonal port/adapter boundary that keeps `client-go`/`apimachinery` code isolated and the data source swappable. |
 | [Logging](openspec/specs/logging/spec.md) | Defines leveled `-v`/`-vv` logging to stderr, shared via context, behind a port/adapter boundary, with timed debug/info traces. |

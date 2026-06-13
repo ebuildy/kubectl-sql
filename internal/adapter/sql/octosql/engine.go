@@ -13,6 +13,8 @@ import (
 	"os"
 
 	"github.com/cube2222/octosql/aggregates"
+	octosqlconfig "github.com/cube2222/octosql/config"
+	"github.com/cube2222/octosql/datasources/json"
 	"github.com/cube2222/octosql/execution"
 	octofunctions "github.com/cube2222/octosql/functions"
 	"github.com/cube2222/octosql/logical"
@@ -52,7 +54,11 @@ func New(config portsql.Config, ds k8sport.DataSource) portsql.Engine {
 			Databases: map[string]func() (physical.Database, error){
 				"k8s": func() (physical.Database, error) { return db, nil },
 			},
-			FileHandlers: map[string]func(context.Context, string, map[string]string) (physical.DatasourceImplementation, physical.Schema, error){},
+			FileHandlers: map[string]func(context.Context, string, map[string]string) (physical.DatasourceImplementation, physical.Schema, error){
+				"json":   json.Creator,
+				"jsonl":  json.Creator,
+				"ndjson": json.Creator,
+			},
 		},
 		VariableContext: nil,
 	}
@@ -64,6 +70,15 @@ func New(config portsql.Config, ds k8sport.DataSource) portsql.Engine {
 // rendered result to w.
 func (e *engine) Execute(ctx context.Context, q portsql.Query, w io.Writer) error {
 	log := logger.FromContext(ctx)
+
+	// octosql's file-based datasources (e.g. datasources/json) read their
+	// buffer-size configuration from the context and panic if none is set.
+	ctx = octosqlconfig.ContextWithConfig(ctx, &octosqlconfig.Config{
+		Files: octosqlconfig.FilesConfig{
+			BufferSizeBytes: 4 * 1024 * 1024,
+			JSON:            octosqlconfig.JSONConfig{MaxLineSizeBytes: 1024 * 1024},
+		},
+	})
 
 	env := e.env
 
@@ -187,11 +202,11 @@ func (e *engine) Execute(ctx context.Context, q portsql.Query, w io.Writer) erro
 }
 
 func typecheckNode(ctx context.Context, node logical.Node, env physical.Environment, logicalEnv logical.Environment) (_ physical.Node, _ map[string]string, outErr error) {
-	// defer func() {
-	// 	if r := recover(); r != nil {
-	// 		outErr = fmt.Errorf("typecheck error: %v", r)
-	// 	}
-	// }()
+	defer func() {
+		if r := recover(); r != nil {
+			outErr = fmt.Errorf("typecheck error: %v", r)
+		}
+	}()
 	physicalNode, mapping := node.Typecheck(ctx, env, logicalEnv)
 	return physicalNode, mapping, nil
 }
