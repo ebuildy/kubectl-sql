@@ -30,6 +30,10 @@ func TestK8sImportBoundary(t *testing.T) {
 	allowedPrefixes := []string{
 		filepath.Join(root, "internal", "adapter", "datasources", "k8s"),
 		filepath.Join(root, "cmd"),
+		// Dev-time code generators are separate `main` packages outside the
+		// runtime binary's hexagonal boundary (e.g. tools/genk8sschema parses
+		// swagger.json at build time to produce the embedded schema snapshot).
+		filepath.Join(root, "tools"),
 	}
 
 	fset := token.NewFileSet()

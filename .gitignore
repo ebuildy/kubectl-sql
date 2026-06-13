@@ -2,3 +2,5 @@ bin/kubectl-sql
 coverage.out
 coverage.html
 external/octosql
+!internal/adapter/datasources/k8s/testdata/swagger.json
+swagger.json

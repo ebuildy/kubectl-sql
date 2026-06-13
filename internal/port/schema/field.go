@@ -3,6 +3,8 @@
 // referenced by both ports and adapters without coupling.
 package schema
 
+import "encoding/json"
+
 // FieldType describes the inferred type of a resource column.
 type FieldType string
 
@@ -61,4 +63,35 @@ func GuaranteedFields() []Field {
 	out := make([]Field, len(guaranteedFields))
 	copy(out, guaranteedFields)
 	return out
+}
+
+// fieldJSON is the JSON shape used by MarshalSubFieldsJSON: only the parts of
+// Field meaningful to a reader of DESCRIBE TABLE's SCHEMA column. Path (an
+// internal resolver detail) is omitted.
+type fieldJSON struct {
+	Name      string      `json:"name"`
+	Type      FieldType   `json:"type"`
+	SubFields []fieldJSON `json:"subFields,omitempty"`
+}
+
+func toFieldJSON(fields []Field) []fieldJSON {
+	out := make([]fieldJSON, len(fields))
+	for i, f := range fields {
+		out[i] = fieldJSON{
+			Name:      f.Name,
+			Type:      f.Type,
+			SubFields: toFieldJSON(f.SubFields),
+		}
+	}
+	return out
+}
+
+// MarshalSubFieldsJSON recursively encodes fields (typically a Field's
+// SubFields) as JSON, retaining only Name, Type, and SubFields at every depth.
+func MarshalSubFieldsJSON(fields []Field) (string, error) {
+	b, err := json.Marshal(toFieldJSON(fields))
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }

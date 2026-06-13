@@ -56,7 +56,7 @@ Example:
 			Out:           os.Stdout,
 		}
 
-		queryCommand, err := commandQuery.NewQueryCommand(config)
+		queryCommand, err := commandQuery.NewQueryCommand(cmd.Context(), config)
 		if err != nil {
 			return fmt.Errorf("kubectl-sql: create query command: %w", err)
 		}
@@ -67,7 +67,7 @@ Example:
 			// queries line-by-line in batch mode.
 			interactive := replFlag || utils.StdinIsTTY()
 
-			replCommand, err := commandRepl.NewReplCommand(config)
+			replCommand, err := commandRepl.NewReplCommand(cmd.Context(), config)
 			if err != nil {
 				return fmt.Errorf("kubectl-sql: create REPL command: %w", err)
 			}

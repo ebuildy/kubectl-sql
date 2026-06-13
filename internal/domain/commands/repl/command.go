@@ -21,8 +21,8 @@ type ReplCommand struct {
 	dataSource   dataSourcePort.DataSource
 }
 
-func NewReplCommand(config api.Config) (*ReplCommand, error) {
-	ds, err := k8sAdapter.New(config.Kubeconfig, config.KubeContext, config.Namespace)
+func NewReplCommand(ctx context.Context, config api.Config) (*ReplCommand, error) {
+	ds, err := k8sAdapter.New(ctx, config.Kubeconfig, config.KubeContext, config.Namespace)
 	if err != nil {
 		return nil, fmt.Errorf("kubectl-sql: connect to cluster: %w", err)
 	}

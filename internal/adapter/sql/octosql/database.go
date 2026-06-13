@@ -10,6 +10,7 @@ import (
 	"github.com/cube2222/octosql/octosql"
 	"github.com/cube2222/octosql/physical"
 	k8sport "github.com/ebuildy/kubectl-sql/internal/port/datasources/k8s"
+	"github.com/ebuildy/kubectl-sql/internal/port/logger"
 	internalschema "github.com/ebuildy/kubectl-sql/internal/port/schema"
 )
 
@@ -46,6 +47,12 @@ func (db *KubernetesDatabase) GetTable(ctx context.Context, name string, _ map[s
 	inferredFields, _ := db.ds.InferSchema(ctx, resource)
 	if len(inferredFields) == 0 {
 		inferredFields = guaranteedSchemaFields()
+	}
+
+	if log := logger.FromContext(ctx); log.TraceEnabled() {
+		if b, err := json.Marshal(inferredFields); err == nil {
+			log.Trace("datasource schema", logger.String("resource", name), logger.String("schema", string(b)))
+		}
 	}
 
 	impl := &kubernetesDatasource{
