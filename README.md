@@ -236,6 +236,28 @@ The specs live in [`openspec/`](openspec/) alongside the code. They document *wh
 > [!NOTE]
 > The entire codebase — from project scaffold to schema inference to the SQL rewriter — was produced through conversational iteration with Claude Code, with humans reviewing and steering at each step.
 
+## Specs
+
+Long-lived behavioral specs live in [`openspec/specs/`](openspec/specs/) and are
+the source of truth for how each feature works.
+
+| Spec | Description |
+|---|---|
+| [DESCRIBE TABLE](openspec/specs/describe-table/spec.md) | Lists all columns and types for a resource via `DESCRIBE TABLE <resource>`, inferred from OpenAPI or a sample object. |
+| [Dynamic Schema Inference](openspec/specs/dynamic-schema/spec.md) | Defines how resource schemas are inferred at query time, driving column discovery for `SELECT *`, `DESCRIBE TABLE`, and typed filtering. |
+| [envtest Integration Tests](openspec/specs/envtest-e2e/spec.md) | Behavioral contract for the envtest-backed integration suite that exercises the full SQL query path without a live cluster. |
+| [Kubernetes Datasource](openspec/specs/k8s-datasource/spec.md) | Defines how resource kinds are resolved, fetched, mapped to rows, and namespace-scoped by the Kubernetes datasource layer. |
+| [Kubernetes Data-Source Port](openspec/specs/k8s-datasource-port/spec.md) | Defines the hexagonal port/adapter boundary that keeps `client-go`/`apimachinery` code isolated and the data source swappable. |
+| [Logging](openspec/specs/logging/spec.md) | Defines leveled `-v`/`-vv` logging to stderr, shared via context, behind a port/adapter boundary, with timed debug/info traces. |
+| [Output Renderer](openspec/specs/output-renderer/spec.md) | Defines `internal/output.Render`, the TTY-independent renderer that drives execution and writes query results. |
+| [Project Scaffold](openspec/specs/project-scaffold/spec.md) | Baseline structural requirements: Go module setup, CLI entrypoint, flags, package layout, and Makefile targets. |
+| [SHOW TABLES](openspec/specs/show-tables/spec.md) | Defines `SHOW TABLES`, which lists all Kubernetes API resource types queryable via `kubectl-sql`. |
+| [SQL Engine Port](openspec/specs/sql-engine-port/spec.md) | Defines the hexagonal port/adapter boundary that confines the octosql engine and keeps it swappable. |
+| [SQL Execution](openspec/specs/sql-execution/spec.md) | End-to-end SQL query execution contract: CLI input, SELECT/WHERE/LIMIT semantics, and flag forwarding. |
+| [SQL REPL](openspec/specs/sql-repl/spec.md) | Defines the interactive REPL: prompt loop, history, batch fallback, and Tab autocomplete for keywords, tables, and columns. |
+| [Swagger Schema Provider](openspec/specs/swagger-schema-provider/spec.md) | Embeds a generated Kubernetes OpenAPI snapshot so `spec`/`status` field structure is available without a cluster round trip. |
+| [Watch Mode](openspec/specs/watch-mode/spec.md) | Defines the `--watch`/`-w` flag, which re-executes the query every 5 seconds and reprints the result table until Ctrl-C or `--timeout`. |
+
 ## Development
 
 ```bash
