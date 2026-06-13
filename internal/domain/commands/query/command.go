@@ -29,8 +29,8 @@ type QueryCommand struct {
 }
 
 // NewQueryCommand builds a QueryCommand from CLI flags. It is the single wiring
-func NewQueryCommand(config api.Config) (*QueryCommand, error) {
-	ds, err := k8sAdapter.New(config.Kubeconfig, config.KubeContext, config.Namespace)
+func NewQueryCommand(ctx context.Context, config api.Config) (*QueryCommand, error) {
+	ds, err := k8sAdapter.New(ctx, config.Kubeconfig, config.KubeContext, config.Namespace)
 	if err != nil {
 		return nil, fmt.Errorf("kubectl-sql: connect to cluster: %w", err)
 	}
@@ -157,10 +157,18 @@ func (c *QueryCommand) runDescribeTable(ctx context.Context, resource string) er
 	}
 
 	table := tablewriter.NewWriter(c.config.Out)
-	table.SetHeader([]string{"COLUMN", "TYPE"})
+	table.SetHeader([]string{"COLUMN", "TYPE", "SCHEMA"})
 	table.SetAutoFormatHeaders(false)
+	table.SetAutoWrapText(false)
 	for _, f := range fields {
-		table.Append([]string{f.Name, string(f.Type)})
+		var fieldSchema string
+		if f.Type.IsObjectLike() && len(f.SubFields) > 0 {
+			fieldSchema, err = schema.MarshalSubFieldsJSON(f.SubFields)
+			if err != nil {
+				return fmt.Errorf("kubectl-sql: encode schema for %q: %w", f.Name, err)
+			}
+		}
+		table.Append([]string{f.Name, string(f.Type), fieldSchema})
 	}
 	table.Render()
 	return nil

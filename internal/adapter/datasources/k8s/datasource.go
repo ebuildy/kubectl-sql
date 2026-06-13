@@ -27,12 +27,12 @@ type dataSource struct {
 
 // New builds a client-go-backed DataSource from kubeconfig + context.
 // It is the single wiring entry point; the returned value is port-typed.
-func New(kubeconfig, kubeContext, namespace string) (k8s.DataSource, error) {
+func New(ctx context.Context, kubeconfig, kubeContext, namespace string) (k8s.DataSource, error) {
 	dyn, mapper, disco, err := newDynamicClient(kubeconfig, kubeContext)
 	if err != nil {
 		return nil, err
 	}
-	schema := newStrategicSchemaProvider(namespace, disco, dyn)
+	schema := newStrategicSchemaProvider(ctx, namespace, disco, dyn)
 	return &dataSource{dyn: dyn, mapper: mapper, disco: disco, schema: schema}, nil
 }
 

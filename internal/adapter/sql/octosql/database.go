@@ -56,6 +56,12 @@ func (db *KubernetesDatabase) GetTable(ctx context.Context, name string, _ map[s
 		}
 	}
 
+	if log := logger.FromContext(ctx); log.TraceEnabled() {
+		if b, err := json.Marshal(inferredFields); err == nil {
+			log.Trace("datasource schema", logger.String("resource", name), logger.String("schema", string(b)))
+		}
+	}
+
 	impl := &kubernetesDatasource{
 		ds:        db.ds,
 		resource:  resource,

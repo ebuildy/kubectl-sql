@@ -1,12 +1,4 @@
-# Spec: DESCRIBE TABLE
-
-## Purpose
-
-Defines the behavior of the `DESCRIBE TABLE <resource>` SQL command, which lists all columns and their types for a given Kubernetes resource. Column information is inferred from OpenAPI or a sample object.
-
----
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: DESCRIBE TABLE lists all columns and types for a resource
 Running `DESCRIBE TABLE <resource>` SHALL return a three-column table (`COLUMN`, `TYPE`, `SCHEMA`) listing every field that would appear in a `SELECT *` query for that resource, inferred from the embedded swagger snapshot, live OpenAPI, or a sample object.
@@ -32,12 +24,3 @@ For each row, the `SCHEMA` column SHALL be populated only when the field's type 
 #### Scenario: Leaf and childless fields leave SCHEMA empty
 - **WHEN** the user runs `kubectl-sql "DESCRIBE TABLE pods"`
 - **THEN** the `name` row's `SCHEMA` column is empty, and any `object`/`map` field with no `SubFields` also has an empty `SCHEMA` column
-
----
-
-### Requirement: DESCRIBE TABLE is case-insensitive
-The parser SHALL accept `describe table pods`, `DESCRIBE TABLE pods`, and `Describe Table Pods` as equivalent.
-
-#### Scenario: Lowercase variant accepted
-- **WHEN** the user runs `kubectl-sql "describe table pods"`
-- **THEN** the command exits 0 and returns the column table

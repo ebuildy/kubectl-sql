@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/after-opsx-archive.sh",
+            "if": "Bash(mv *)",
+            "statusMessage": "Checking for opsx archive..."
+          }
+        ]
+      }
+    ]
+  }
+}

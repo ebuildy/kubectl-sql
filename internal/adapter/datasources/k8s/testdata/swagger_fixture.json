@@ -1,0 +1,160 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "genk8sschema fixture",
+    "version": "fixture"
+  },
+  "paths": {
+    "/api/v1/namespaces/{namespace}/pods": {
+      "get": {
+        "operationId": "listCoreV1NamespacedPod",
+        "x-kubernetes-action": "list",
+        "x-kubernetes-group-version-kind": {
+          "group": "",
+          "version": "v1",
+          "kind": "Pod"
+        },
+        "responses": {}
+      }
+    },
+    "/api/v1/namespaces/{namespace}/pods/{name}/status": {
+      "get": {
+        "operationId": "readCoreV1NamespacedPodStatus",
+        "x-kubernetes-action": "get",
+        "x-kubernetes-group-version-kind": {
+          "group": "",
+          "version": "v1",
+          "kind": "Pod"
+        },
+        "responses": {}
+      }
+    },
+    "/apis/example.com/v1/namespaces/{namespace}/widgets": {
+      "get": {
+        "operationId": "listExampleV1NamespacedWidget",
+        "x-kubernetes-action": "list",
+        "x-kubernetes-group-version-kind": {
+          "group": "example.com",
+          "version": "v1",
+          "kind": "Widget"
+        },
+        "responses": {}
+      }
+    }
+  },
+  "definitions": {
+    "test.Pod": {
+      "type": "object",
+      "x-kubernetes-group-version-kind": [
+        {
+          "group": "",
+          "version": "v1",
+          "kind": "Pod"
+        }
+      ],
+      "properties": {
+        "apiVersion": {"type": "string"},
+        "kind": {"type": "string"},
+        "metadata": {"$ref": "#/definitions/test.ObjectMeta"},
+        "spec": {"$ref": "#/definitions/test.PodSpec"},
+        "status": {"$ref": "#/definitions/test.PodStatus"}
+      }
+    },
+    "test.PodSpec": {
+      "type": "object",
+      "properties": {
+        "nodeName": {"type": "string"},
+        "containers": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/test.Container"}
+        }
+      }
+    },
+    "test.Container": {
+      "type": "object",
+      "properties": {
+        "name": {"type": "string"},
+        "image": {"type": "string"},
+        "ports": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/test.ContainerPort"}
+        }
+      }
+    },
+    "test.ContainerPort": {
+      "type": "object",
+      "properties": {
+        "containerPort": {"type": "integer"},
+        "protocol": {"type": "string"}
+      }
+    },
+    "test.PodStatus": {
+      "type": "object",
+      "properties": {
+        "phase": {"type": "string"},
+        "conditions": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/test.PodCondition"}
+        }
+      }
+    },
+    "test.PodCondition": {
+      "type": "object",
+      "properties": {
+        "type": {"type": "string"},
+        "status": {"type": "string"}
+      }
+    },
+    "test.ObjectMeta": {
+      "type": "object",
+      "properties": {
+        "name": {"type": "string"},
+        "namespace": {"type": "string"},
+        "labels": {
+          "type": "object",
+          "additionalProperties": {"type": "string"}
+        },
+        "annotations": {
+          "type": "object",
+          "additionalProperties": {"type": "string"}
+        }
+      }
+    },
+    "test.Widget": {
+      "type": "object",
+      "x-kubernetes-group-version-kind": [
+        {
+          "group": "example.com",
+          "version": "v1",
+          "kind": "Widget"
+        }
+      ],
+      "properties": {
+        "apiVersion": {"type": "string"},
+        "kind": {"type": "string"},
+        "metadata": {"$ref": "#/definitions/test.ObjectMeta"},
+        "spec": {"$ref": "#/definitions/test.WidgetSpec"}
+      }
+    },
+    "test.WidgetSpec": {
+      "type": "object",
+      "properties": {
+        "name": {"type": "string"},
+        "validation": {"$ref": "#/definitions/test.JSONSchemaProps"}
+      }
+    },
+    "test.JSONSchemaProps": {
+      "type": "object",
+      "properties": {
+        "type": {"type": "string"},
+        "not": {"$ref": "#/definitions/test.JSONSchemaProps"}
+      }
+    },
+    "test.Orphan": {
+      "type": "object",
+      "properties": {
+        "value": {"type": "string"}
+      }
+    }
+  }
+}
