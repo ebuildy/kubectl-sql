@@ -29,13 +29,18 @@ type strategicSchemaProvider struct {
 	namespace string
 	disco     discovery.DiscoveryInterface
 	dyn       dynamic.Interface
+
+	defaultProvider *defaultSchemaProvider
+	swaggerProvider *swaggerSchemaProvider
 }
 
-func newStrategicSchemaProvider(namespace string, disco discovery.DiscoveryInterface, dyn dynamic.Interface) *strategicSchemaProvider {
+func newStrategicSchemaProvider(ctx context.Context, namespace string, disco discovery.DiscoveryInterface, dyn dynamic.Interface) *strategicSchemaProvider {
 	return &strategicSchemaProvider{
-		namespace: namespace,
-		disco:     disco,
-		dyn:       dyn,
+		namespace:       namespace,
+		disco:           disco,
+		dyn:             dyn,
+		defaultProvider: newDefaultSchemaProvider(),
+		swaggerProvider: newSwaggerSchemaProvider(ctx),
 	}
 }
 
@@ -50,11 +55,22 @@ func (c *strategicSchemaProvider) Provide(ctx context.Context, gvr k8sschema.Gro
 	}()
 
 	// Start from the hardcoded default baseline (name, namespace, metadata, spec, status, …).
-	defaultProvider := newDefaultSchemaProvider()
-	fields, _ := defaultProvider.Provide(ctx, gvr)
+	fields, _ := c.defaultProvider.Provide(ctx, gvr)
 	root := &schema.Field{Name: "root", Type: schema.FieldTypeObject, SubFields: fields}
 
-	// Layer 1: enrich with OpenAPI v3 fields (structural depth for spec/status/…).
+	// Layer 1: enrich with the embedded build-time swagger snapshot (full
+	// spec/status depth for standard resources, no API call required).
+	if swaggerFields, err := c.swaggerProvider.Provide(ctx, gvr); err != nil {
+		log.Debug("schema source: swagger inferrer error", logger.String("gvr", gvr.String()), logger.String("err", err.Error()))
+	} else if len(swaggerFields) > 0 {
+		if err := mergeSchemas(root, swaggerFields); err != nil {
+			log.Error("schema source: swagger merge error", logger.String("gvr", gvr.String()), logger.String("err", err.Error()))
+		} else {
+			log.Debug("schema source: swagger merged", logger.String("gvr", gvr.String()))
+		}
+	}
+
+	// Layer 2: enrich with OpenAPI v3 fields (structural depth for spec/status/…).
 	openAPIProvider := newOpenAPIInferrer(c.disco)
 	if openapiFields, err := openAPIProvider.Provide(ctx, gvr); err != nil {
 		log.Debug("schema source: openapi inferrer error", logger.String("gvr", gvr.String()), logger.String("err", err.Error()))
@@ -66,7 +82,7 @@ func (c *strategicSchemaProvider) Provide(ctx context.Context, gvr k8sschema.Gro
 		}
 	}
 
-	// Layer 2: enrich with a sample object (dynamic depth, e.g. metadata->labels->app).
+	// Layer 3: enrich with a sample object (dynamic depth, e.g. metadata->labels->app).
 	sampleProvider := newSampleInferrer(c.dyn, c.namespace)
 	if sampleFields, err := sampleProvider.Provide(ctx, gvr); err != nil {
 		log.Debug("schema source: sample inferrer error", logger.String("gvr", gvr.String()), logger.String("err", err.Error()))

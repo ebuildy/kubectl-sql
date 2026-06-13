@@ -258,6 +258,34 @@ make dev-deps
 > [!NOTE]
 > Integration and e2e tests use [controller-runtime envtest](https://pkg.go.dev/sigs.k8s.io/controller-runtime/pkg/envtest) — no real cluster needed. Run `make dev-deps` first to download the required binaries.
 
+### Regenerating the embedded Kubernetes schema
+
+`kubectl-sql` ships with an embedded snapshot of the Kubernetes OpenAPI v2 spec
+(`internal/adapter/datasources/k8s/schema_swagger_k8s_standard_resources.go` +
+`.bin.gz`), used as a schema source for `DESCRIBE TABLE` and `SELECT *` column
+inference on built-in resources.
+
+To regenerate it:
+
+```bash
+make generate
+```
+
+This runs [`tools/genk8sschema`](tools/genk8sschema), which reads
+`internal/adapter/datasources/k8s/testdata/swagger.json` and writes the
+embedded Go snapshot. That fixture is gitignored; if it's missing, `make
+generate` downloads the latest `swagger.json` from
+[kubernetes/kubernetes master](https://github.com/kubernetes/kubernetes/blob/master/api/openapi-spec/swagger.json)
+automatically.
+
+To refresh the snapshot to a newer Kubernetes version, delete the fixture and
+re-run `make generate`:
+
+```bash
+rm internal/adapter/datasources/k8s/testdata/swagger.json
+make generate
+```
+
 ## Releasing
 
 Releases are fully automated with [GoReleaser](https://goreleaser.com/) via the [Release workflow](.github/workflows/release.yml). Pushing a tag matching `v*` triggers it:
