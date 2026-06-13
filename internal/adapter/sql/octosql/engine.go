@@ -94,7 +94,7 @@ func (e *engine) Execute(ctx context.Context, q portsql.Query, w io.Writer) erro
 
 	selectStmt, ok := statement.(sqlparser.SelectStatement)
 	if !ok {
-		return fmt.Errorf("octosql: only SELECT statements are supported")
+		return fmt.Errorf("syntax query is invalid")
 	}
 
 	logicalPlan, outputOptions, err := parser.ParseNode(selectStmt)
