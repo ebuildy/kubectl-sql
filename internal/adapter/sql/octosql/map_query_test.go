@@ -67,38 +67,3 @@ func TestMapField(t *testing.T) {
 	assert.Equal(t, "redis", rows[1]["name"], "map key access via ->")
 	assert.Equal(t, map[string]any{"tier": "db", "env": "prod", "vendor": "valkey"}, rows[1]["labels"], "map field should be returned as a JSON object")
 }
-
-// TestMapField_AccessKeysContains proves a map field supports per-row dynamic
-// keys: bracket key access (map['key']), keys(), contains() and length() all work
-// on each row's own map, and a missing key resolves to null.
-func TestMapField_AccessKeysContains(t *testing.T) {
-	eng := New(portsql.Config{Output: "json"}, mapFakeDS{})
-	var buf strings.Builder
-	err := eng.Execute(context.Background(),
-		portsql.Query{SQL: "SELECT metadata.labels['app'] AS app, keys(metadata->labels) AS ks, contains(metadata->labels, 'nginx') AS has, length(metadata->labels) AS n, metadata.labels['env'] AS env FROM pods"},
-		&buf)
-	require.NoError(t, err, "execute: %s", buf.String())
-
-	var rows []map[string]any
-	require.NoError(t, json.Unmarshal([]byte(buf.String()), &rows), "JSON: %s", buf.String())
-	require.Len(t, rows, 2)
-
-	//nginx: app=nginx, keys=[app,tier], contains(nginx)=true, length=2
-	assert.Equal(t, "nginx", rows[0]["app"], "map key access via ->")
-	assert.EqualValues(t, 2, rows[0]["n"], "length() counts map keys")
-	assert.Equal(t, true, rows[0]["has"], "contains() finds a map value")
-
-	ks, ok := rows[0]["ks"].([]any)
-	require.True(t, ok, "keys() returns a list, got %T", rows[0]["ks"])
-	assert.ElementsMatch(t, []any{"app", "tier"}, ks, "keys() lists the map keys")
-
-	//redis: app=null, keys=[tier,env,vendor], contains(nginx)=false, length=2
-	assert.Equal(t, nil, rows[1]["app"], "missing map key should be null")
-	assert.EqualValues(t, 3, rows[1]["n"], "length() counts map keys")
-	assert.Equal(t, false, rows[1]["has"], "contains() does not find missing value")
-
-	ks, ok = rows[1]["ks"].([]any)
-	require.True(t, ok, "keys() returns a list, got %T", rows[1]["ks"])
-	assert.ElementsMatch(t, []any{"tier", "env", "vendor"}, ks, "keys() lists the map keys")
-	assert.Equal(t, "prod", rows[1]["env"], "map key access via ->")
-}

@@ -171,6 +171,25 @@ func valueToNativeTyped(v octosql.Value, t octosql.Type) interface{} {
 		}
 		return out
 	}
+	// array_get()/list indexing extracts a single list element and types it
+	// Any|Null (see arrayGetFunction): like other list elements, its string form
+	// is JSON-encoded and must be decoded rather than emitted as an escaped string.
+	if v.TypeID == octosql.TypeIDString && octosql.NonNullable(t).TypeID == octosql.TypeIDAny {
+		return decodeListElement(v)
+	}
+	return valueToNative(v)
+}
+
+// decodeListElement decodes a JSON-encoded list element string into its native
+// form (object, array, number, etc.), falling back to the raw string if it
+// isn't valid JSON.
+func decodeListElement(v octosql.Value) interface{} {
+	if v.TypeID == octosql.TypeIDString {
+		var decoded interface{}
+		if json.Unmarshal([]byte(v.Str), &decoded) == nil {
+			return decoded
+		}
+	}
 	return valueToNative(v)
 }
 
@@ -290,14 +309,7 @@ func valueToNative(v octosql.Value) interface{} {
 		for i, e := range v.List {
 			// List elements are JSON-encoded strings; decode so nested objects
 			// render as real JSON rather than escaped strings.
-			if e.TypeID == octosql.TypeIDString {
-				var decoded interface{}
-				if json.Unmarshal([]byte(e.Str), &decoded) == nil {
-					out[i] = decoded
-					continue
-				}
-			}
-			out[i] = valueToNative(e)
+			out[i] = decodeListElement(e)
 		}
 		return out
 	case octosql.TypeIDTuple:

@@ -13,8 +13,8 @@ using SQL-like syntax. It is designed for fast debugging, error discovery, resou
 cross-namespace analysis directly from the terminal.
 
 ```
-kubectl sql "SELECT name, namespace, status.phase FROM pods WHERE status.phase != 'Running'"
-kubectl sql "SELECT name, age FROM nodes WHERE .metadata.labels['node-role.kubernetes.io/master'] IS NOT NULL"
+kubectl sql "SELECT name, namespace, status->phase FROM pods WHERE status->phase != 'Running'"
+kubectl sql "SELECT name, age FROM nodes WHERE map_get(metadata->labels, 'node-role.kubernetes.io/master') IS NOT NULL"
 kubectl sql "SELECT name, namespace, reason, message FROM events WHERE type = 'Warning' ORDER BY lastTimestamp DESC LIMIT 20"
 ```
 
@@ -89,6 +89,12 @@ change, not as a code edit.
 | `/opsx:ff` | Fast-forward: generate `proposal.md`, `specs/`, `design.md`, `tasks.md` in one pass |
 | `/opsx:apply` | Implement all tasks in `tasks.md` following the specs and design |
 | `/opsx:archive` | Move completed change to `openspec/changes/archive/` and update long-lived specs |
+| `/dev:update-readme-specs` | Regenerate the README `## Specs` table from `openspec/specs/*/spec.md` |
+
+**After every `/opsx:archive`**, run `/dev:update-readme-specs` to keep the README `## Specs`
+table in sync with `openspec/specs/`. A `PostToolUse` hook
+(`.claude/hooks/after-opsx-archive.sh`) reminds the assistant to do this when it detects the
+archive `mv` step — but it must still be run even if entries don't change (it is idempotent).
 
 ### When to create a change
 
@@ -157,7 +163,7 @@ behavioral deltas back into the relevant spec file here.
 ### Field resolution (`internal/executor/resolver.go`)
 
 - Fields are JSON paths on `unstructured.Unstructured` objects
-- Support dot notation: `status.phase`, `.metadata.labels['app']`
+- Nested field access uses `->`: `status->phase`; map keys via `map_get(metadata->labels, 'app')`
 - Unknown fields return `NULL` (not an error) so WHERE filters work gracefully
 - Type coercion: numbers, booleans, RFC3339 timestamps, and strings
 
@@ -262,7 +268,7 @@ FROM pod / pods / po
 SELECT * FROM deployments
 
 -- Aggregates (v1 scope)
-SELECT COUNT(*) FROM pods WHERE status.phase = 'Failed'
+SELECT COUNT(*) FROM pods WHERE status->phase = 'Failed'
 
 -- Label selector sugar
 SELECT * FROM pods WHERE LABEL 'app' = 'nginx'
@@ -316,22 +322,22 @@ This applies unconditionally — even if the user asks the assistant to commit o
 
 ```bash
 # List all failing pods across the cluster
-kubectl sql "SELECT name, namespace, status.phase, status.reason FROM pods WHERE status.phase = 'Failed'"
+kubectl sql "SELECT name, namespace, status->phase, status->reason FROM pods WHERE status->phase = 'Failed'"
 
 # Find recent warnings
 kubectl sql "SELECT name, namespace, reason, message, lastTimestamp FROM events WHERE type = 'Warning' ORDER BY lastTimestamp DESC LIMIT 50"
 
 # Nodes not Ready
-kubectl sql "SELECT name, status.conditions[?type=='Ready'].status AS ready, .metadata.labels['kubernetes.io/arch'] AS arch FROM nodes WHERE ready != 'True'"
+kubectl sql "SELECT name, status->conditions[?type=='Ready'].status AS ready, map_get(metadata->labels, 'kubernetes.io/arch') AS arch FROM nodes WHERE ready != 'True'"
 
 # CrashLoopBackOff containers
-kubectl sql "SELECT name, namespace, .status.containerStatuses[0].state.waiting.reason AS reason FROM pods WHERE reason = 'CrashLoopBackOff'"
+kubectl sql "SELECT name, namespace, array_get(status->containerStatuses, 0)->state->waiting->reason AS reason FROM pods WHERE reason = 'CrashLoopBackOff'"
 
 # Deployments with unavailable replicas
-kubectl sql "SELECT name, namespace, status.replicas, status.availableReplicas FROM deployments WHERE status.availableReplicas < status.replicas"
+kubectl sql "SELECT name, namespace, status->replicas, status->availableReplicas FROM deployments WHERE status->availableReplicas < status->replicas"
 
 # Show execution plan (no API calls)
-kubectl sql --explain "SELECT name FROM pods WHERE status.phase = 'Pending'"
+kubectl sql --explain "SELECT name FROM pods WHERE status->phase = 'Pending'"
 ```
 
 ---
@@ -347,6 +353,7 @@ kubectl sql --explain "SELECT name FROM pods WHERE status.phase = 'Pending'"
 6. make lint && make test     # must pass clean
 7. Open PR — include link to change folder in PR description
 8. /opsx:archive             # after merge, reconcile openspec/specs/
+9. /dev:update-readme-specs  # regenerate the README Specs table
 ```
 
 ---

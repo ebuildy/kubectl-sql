@@ -39,6 +39,8 @@ func (db *KubernetesDatabase) ListTables(_ context.Context) ([]string, error) {
 // GetTable resolves a resource kind via the port, infers its schema, and returns
 // the datasource implementation.
 func (db *KubernetesDatabase) GetTable(ctx context.Context, name string, _ map[string]string) (physical.DatasourceImplementation, physical.Schema, error) {
+	log := logger.FromContext(ctx)
+
 	resource, err := db.ds.Resolve(ctx, name)
 	if err != nil {
 		return nil, physical.Schema{}, fmt.Errorf("executor: resolve resource %q: %w", name, err)
@@ -47,6 +49,11 @@ func (db *KubernetesDatabase) GetTable(ctx context.Context, name string, _ map[s
 	inferredFields, _ := db.ds.InferSchema(ctx, resource)
 	if len(inferredFields) == 0 {
 		inferredFields = guaranteedSchemaFields()
+	}
+	if log.TraceEnabled() {
+		if raw, err := json.Marshal(inferredFields); err == nil {
+			log.Trace("inferred schema", logger.String("table", name), logger.String("schema", string(raw)))
+		}
 	}
 
 	if log := logger.FromContext(ctx); log.TraceEnabled() {
@@ -63,10 +70,17 @@ func (db *KubernetesDatabase) GetTable(ctx context.Context, name string, _ map[s
 		fields:    inferredFields,
 	}
 
+	octoFields := toOctoFields(inferredFields)
+	if log.TraceEnabled() {
+		if raw, err := json.Marshal(octoFields); err == nil {
+			log.Trace("octosql schema", logger.String("table", name), logger.String("schema", string(raw)))
+		}
+	}
+
 	sch := physical.Schema{
 		TimeField:     -1,
 		NoRetractions: true,
-		Fields:        toOctoFields(inferredFields),
+		Fields:        octoFields,
 	}
 
 	return impl, sch, nil
@@ -222,9 +236,6 @@ func resolveFieldValue(raw map[string]interface{}, field internalschema.Field) o
 	}
 
 	resolvePath := field.Name
-	if field.Path != "" {
-		resolvePath = field.Path
-	}
 
 	if field.Type == internalschema.FieldTypeList {
 		return anyToListValue(ResolveField(raw, resolvePath))

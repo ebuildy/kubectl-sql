@@ -4,7 +4,7 @@ import "testing"
 
 func TestMarshalSubFieldsJSON(t *testing.T) {
 	fields := []Field{
-		{Name: "phase", Path: "status.phase", Type: FieldTypeString},
+		{Name: "phase", Type: FieldTypeString},
 		{Name: "containers", Type: FieldTypeList},
 		{Name: "affinity", Type: FieldTypeObject, SubFields: []Field{
 			{Name: "nodeAffinity", Type: FieldTypeObject},

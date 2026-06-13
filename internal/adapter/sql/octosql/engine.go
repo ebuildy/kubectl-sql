@@ -1,6 +1,6 @@
 // Package octosql is the octosql-backed adapter for the SQL-engine port
 // (internal/port/sql). It is the ONLY package in the repository that imports
-// github.com/cube2222/octosql. It owns the full query pipeline — dot/arrow
+// github.com/cube2222/octosql. It owns the full query pipeline — table-qualifier
 // rewrite, parse, plan, typecheck, optimize, execute — and renders the result.
 // Cluster data is obtained solely through the injected k8s DataSource port; this
 // package imports no client-go.
