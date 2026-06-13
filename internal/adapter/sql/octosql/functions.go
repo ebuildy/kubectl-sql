@@ -237,8 +237,8 @@ func keysFunction() physical.FunctionDetails {
 
 // mapGetFunction implements map_get(map, key) -> any|null: looks up a key in a map
 // column (List<Any> of [k1,v1,k2,v2,...]) and returns its value in its native
-// octosql type, or NULL if absent. This backs the field['key'] access syntax (see
-// rewriteDottedFields).
+// octosql type, or NULL if absent. Called directly in SQL, e.g.
+// map_get(metadata->labels, 'app').
 func mapGetFunction() physical.FunctionDetails {
 	anyOrNull := octosql.TypeSum(octosql.Any, octosql.Null)
 	return physical.FunctionDetails{
@@ -322,11 +322,10 @@ func mapValuesFunction() physical.FunctionDetails {
 }
 
 // arrayGetFunction implements array_get(list, index) -> element|null: returns
-// the element at index, or NULL if index is out of range. This backs the
-// field->subfield[N] access syntax (see rewriteDottedFields): octosql's native
-// "[]" indexing operator (list[index]) has the same semantics but cannot
-// round-trip through sqlparser.String(), so the rewrite calls this function
-// instead.
+// the element at index, or NULL if index is out of range. Called directly in
+// SQL, e.g. array_get(spec->volumes, 0): octosql's native "[]" indexing operator
+// (list[index]) has the same semantics but cannot round-trip through
+// sqlparser.String(), so queries use this function instead.
 //
 // The output is always typed Any|Null, regardless of the list's element type.
 // Our list columns carry JSON-encoded string elements (see fieldToOctoType),

@@ -21,8 +21,8 @@ kubectl sql "SELECT name, namespace, status->phase FROM pods WHERE status->phase
 
 - **Full SQL subset** — `SELECT`, `WHERE`, `ORDER BY`, `LIMIT`, `GROUP BY`, aggregates (`COUNT`, `SUM`, …), `DISTINCT`
 - **Dynamic schema** — columns are inferred from the OpenAPI spec (with sample-object fallback), so `SELECT *` returns real resource fields like `status`, `spec`, `metadata`
-- **Nested field access** — use `->` for struct traversal (`metadata->labels->app`) or dot notation (auto-rewritten)
-- **Array indexing** — `spec.volumes[0].configMap` resolves the first volume's ConfigMap name
+- **Nested field access** — use `->` for struct traversal (`metadata->labels->app`)
+- **Array indexing** — `array_get(spec->volumes, 0)->configMap` resolves the first volume's ConfigMap name
 - **All resource types** — built-ins, CRDs, short names, plural forms all accepted
 - **Cross-namespace** — queries all namespaces by default; scope with `-n`
 - **Multiple output formats** — aligned table, JSON, CSV
@@ -66,7 +66,7 @@ Pass a query directly, or run with no query to drop into the interactive REPL:
 
 ```
 $ kubectl-sql
-sql> SELECT name, namespace FROM pods WHERE status.phase != 'Running'
+sql> SELECT name, namespace FROM pods WHERE status->phase != 'Running'
 ... results ...
 sql> \q
 ```
@@ -138,17 +138,14 @@ SELECT * FROM deployments LIMIT 5
 
 ### Nested fields
 
-Use `->` to traverse struct fields. Dot notation is automatically rewritten.
+Use `->` to traverse struct fields.
 
 ```sql
 -- Arrow notation
 SELECT metadata->labels->app FROM pods
 
--- Dot notation (equivalent)
-SELECT metadata.labels.app FROM pods
-
--- Array index access
-SELECT name, spec.volumes[0].configMap FROM pods WHERE name = 'nginx'
+-- Array index access via array_get()
+SELECT name, array_get(spec->volumes, 0)->configMap FROM pods WHERE name = 'nginx'
 ```
 
 ### Aggregates
@@ -215,7 +212,7 @@ kubectl sql --explain "SELECT name FROM pods WHERE status->phase = 'Pending'"
 `kubectl-sql` is built on [octosql](https://github.com/cube2222/octosql), a streaming SQL engine. At query time it:
 
 1. **Infers the schema** from the cluster's OpenAPI v3 spec (primary) or a 1-item LIST sample (fallback), exposing all real resource fields as typed columns
-2. **Rewrites the SQL** — dot-notation field paths become octosql `->` struct access operators; array index paths become flat column names
+2. **Rewrites the SQL** — bare table names in `FROM`/`JOIN` are qualified with `k8s.` so octosql routes them to the Kubernetes datasource
 3. **Streams results** — resources are fetched with paginated LIST calls and streamed through the SQL engine; no full cluster load into memory
 4. **Renders output** — results are written as an aligned table, JSON array, or CSV
 

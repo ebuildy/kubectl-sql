@@ -1,2 +1,8 @@
 (* kubectl-sql SQL grammar — EBNF *)
 (* TODO: fill in as the parser is implemented *)
+
+(* Nested field access is the "->" operator only (metadata->labels->app), *)
+(* native to octosql's parser. There is no dot-notation production and no *)
+(* query-string rewrite step. Map key lookup, array indexing, key *)
+(* enumeration, and membership checks are plain function calls: *)
+(* map_get(field, 'key'), array_get(list, n), keys(field), contains(field, val). *)

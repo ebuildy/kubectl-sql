@@ -38,24 +38,7 @@ Scenario: use map_get with key with dot in config maps
   Then the exit code is 0
   And the output produces JQ ".[0].val == \"{\\\"foo\\\": \\\"bar\\\"}\""
 
-# @TODO skip until we improve rewrite stuff
-# Scenario: SELECT a map key with bracket notation returns nginx
-#   When I run kubectl-sql "SELECT DISTINCT metadata.labels['app'] AS app FROM pods" against the envtest cluster
-#   Then the exit code is 0
-#   And the output produces JQ "[.[].app] | any(. == \"nginx\")"
-
-# Scenario: WHERE on a map key with bracket notation filters correctly
-#   When I run kubectl-sql "SELECT name FROM pods WHERE metadata.labels['app'] = 'nginx'" against the envtest cluster
-#   Then the exit code is 0
-#   And the output produces JQ "length > 0"
-
 Scenario: SELECT metadata->labels returns the labels map as a JSON object
   When I run kubectl-sql "SELECT DISTINCT metadata->labels AS labels FROM pods LIMIT 1" against the envtest cluster
   Then the exit code is 0
   And the output produces JQ ".[0].labels | has(\"app\")"
-
-# @TODO skip until we improve rewrite stuff
-# Scenario: SELECT metadata.labels.* returns the labels map as a JSON object
-#   When I run kubectl-sql "SELECT DISTINCT metadata.labels.* AS labels FROM pods LIMIT 1" against the envtest cluster
-#   Then the exit code is 0
-#   And the output produces JQ ".[0].labels | has(\"app\")"
