@@ -182,8 +182,16 @@ func (tc *testContext) theOutputContains(s string) error {
 }
 
 func (tc *testContext) theOutputDoesNotContain(s string) error {
-	if strings.Contains(tc.stdout, s) || strings.Contains(tc.stderr, s) {
-		return fmt.Errorf("expected output NOT to contain %q\nstdout:\n%s\nstderr:\n%s", s, tc.stdout, tc.stderr)
+	// Unquote so the step can assert on substrings containing literal quotes,
+	// e.g. "the output does not contain \"name\":\"app\"\"" to check a JSON
+	// key/value pair rather than the bare word, which may also occur as part
+	// of an unrelated field name (e.g. "appArmorProfile").
+	unquoted, err := strconv.Unquote(s)
+	if err != nil {
+		return fmt.Errorf("invalid string literal %q: %w", s, err)
+	}
+	if strings.Contains(tc.stdout, unquoted) || strings.Contains(tc.stderr, unquoted) {
+		return fmt.Errorf("expected output NOT to contain %q\nstdout:\n%s\nstderr:\n%s", unquoted, tc.stdout, tc.stderr)
 	}
 	return nil
 }
@@ -286,7 +294,7 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the exit code is (\d+)$`, tc.theExitCodeIs)
 	sc.Step(`^the exit code is not (\d+)$`, tc.theExitCodeIsNot)
 	sc.Step(`^the output contains "([^"]*)"$`, tc.theOutputContains)
-	sc.Step(`^the output does not contain "([^"]*)"$`, tc.theOutputDoesNotContain)
+	sc.Step(`^the output does not contain (.+)$`, tc.theOutputDoesNotContain)
 	sc.Step(`^the output produces JQ (.+)$`, tc.theOutputProducesJQ)
 	sc.Step(`^I run kubectl-sql --watch "([^"]*)" against the envtest cluster$`, tc.iRunKubectlSqlWithWatchFlag)
 	sc.Step(`^I pipe "([^"]*)" to kubectl-sql against the envtest cluster$`, tc.iPipeQueryToKubectlSql)

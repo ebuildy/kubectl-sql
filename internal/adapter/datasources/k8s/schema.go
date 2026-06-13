@@ -125,9 +125,11 @@ func mergeSchemas(root *schema.Field, fields []schema.Field) error {
 		case dst.Type.IsObjectLike() && f.Type.IsObjectLike():
 			// Both object-like (struct or map). Keep the destination's KIND — it was
 			// set by an authoritative layer (default baseline / OpenAPI) and a later
-			// sample SHALL NOT downgrade a map to a struct or vice versa. Still merge
-			// the source's subfields/keys so e.g. metadata->labels->app resolves.
-			if len(f.SubFields) > 0 {
+			// sample SHALL NOT downgrade a map to a struct or vice versa. Only merge
+			// the source's subfields for a fixed-schema struct: a FieldTypeMap has no
+			// per-key subfields (its runtime type is List<Any>), so sample-derived
+			// keys (e.g. metadata->labels's "app") must not leak into its schema.
+			if dst.Type == schema.FieldTypeObject && len(f.SubFields) > 0 {
 				if err := mergeSchemas(dst, f.SubFields); err != nil {
 					return err
 				}
@@ -138,7 +140,7 @@ func mergeSchemas(root *schema.Field, fields []schema.Field) error {
 			// Source is object-like, dest was a leaf: promote so nested access works.
 			dst.Type = f.Type
 			dst.SubFields = nil
-			if len(f.SubFields) > 0 {
+			if dst.Type == schema.FieldTypeObject && len(f.SubFields) > 0 {
 				if err := mergeSchemas(dst, f.SubFields); err != nil {
 					return err
 				}

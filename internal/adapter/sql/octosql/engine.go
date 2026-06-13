@@ -82,16 +82,16 @@ func (e *engine) Execute(ctx context.Context, q portsql.Query, w io.Writer) erro
 
 	env := e.env
 
-	// Rewrite bare table names (e.g. FROM pods) to k8s.pods so our DB is used.
-	rewritten := rewriteQuery(q.SQL)
-	log.Debug("query rewritten", logger.String("rewritten", rewritten))
-
-	statement, err := sqlparser.Parse(rewritten)
+	statement, err := sqlparser.Parse(q.SQL)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		return fmt.Errorf("octosql: parse query: %w", err)
 	}
 	log.Debug("query parsed")
+
+	// Rewrite bare table names (e.g. FROM pods) to k8s.pods so our DB is used.
+	statement = rewriteStatement(statement)
+
 	selectStmt, ok := statement.(sqlparser.SelectStatement)
 	if !ok {
 		return fmt.Errorf("octosql: only SELECT statements are supported")

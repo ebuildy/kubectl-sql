@@ -235,12 +235,18 @@ func keysFunction() physical.FunctionDetails {
 	}
 }
 
-// mapGetFunction implements map_get(map, key) -> any|null: looks up a key in a map
-// column (List<Any> of [k1,v1,k2,v2,...]) and returns its value in its native
-// octosql type, or NULL if absent. Called directly in SQL, e.g.
-// map_get(metadata->labels, 'app').
+// mapGetFunction implements map_get(map, key) -> string|null: looks up a key in a map
+// column (List<Any> of [k1,v1,k2,v2,...]) and returns its value, or NULL if absent.
+// Called directly in SQL, e.g. map_get(metadata->labels, 'app').
+//
+// The result is typed string|null rather than any|null: map columns (labels,
+// annotations, configmap data, ...) are always map[string]string, so values are
+// stored as plain (un-encoded) strings by anyToMapValue/anyToOctoValue. Typing this
+// any|null like arrayGetFunction would route the result through the renderer's
+// decodeListElement, which JSON-decodes the raw string — corrupting values whose
+// content happens to look like JSON (e.g. a configmap key holding "{\"foo\":\"bar\"}").
 func mapGetFunction() physical.FunctionDetails {
-	anyOrNull := octosql.TypeSum(octosql.Any, octosql.Null)
+	stringOrNull := octosql.TypeSum(octosql.String, octosql.Null)
 	return physical.FunctionDetails{
 		Descriptors: []physical.FunctionDescriptor{
 			{
@@ -249,7 +255,7 @@ func mapGetFunction() physical.FunctionDetails {
 					if len(types) != 2 || !isMapListType(types[0]) || types[1].TypeID != octosql.TypeIDString {
 						return octosql.Type{}, false
 					}
-					return anyOrNull, true
+					return stringOrNull, true
 				},
 				Function: func(v []octosql.Value) (octosql.Value, error) {
 					list := v[0].List

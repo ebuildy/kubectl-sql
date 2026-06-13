@@ -101,7 +101,7 @@ Feature: SQL queries against envtest cluster
     Then the exit code is 0
     And the output contains "labels"
     And the output contains "map"
-    And the output does not contain "app"
+    And the output does not contain "\"name\":\"app\""
 
   Scenario: DESCRIBE TABLE configmaps lists name column
     When I run kubectl-sql "DESCRIBE TABLE configmaps" against the envtest cluster

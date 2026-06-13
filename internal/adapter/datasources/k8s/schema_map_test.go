@@ -101,6 +101,5 @@ func TestMergeSchemas_MapKindNotDowngradedBySample(t *testing.T) {
 
 	labels := root.SubFields[0]
 	assert.Equal(t, schema.FieldTypeMap, labels.Type, "kind stays map (not downgraded to object)")
-	assert.Len(t, labels.SubFields, 1, "sample key merged into the map")
-	assert.Equal(t, "app", labels.SubFields[0].Name)
+	assert.Empty(t, labels.SubFields, "sample keys (e.g. \"app\") are not added as per-key map subfields")
 }
