@@ -3,7 +3,6 @@ package utils
 import (
 	"os"
 	"regexp"
-	"strings"
 
 	"golang.org/x/term"
 )
@@ -52,34 +51,4 @@ var yamlTopLevelKeyPattern = regexp.MustCompile(`(?m)^("(?:[^"\\]|\\.)*"|'(?:[^'
 // values, and block scalar content uncolored.
 func ColorizeYAMLTopLevelKeys(s string) string {
 	return yamlTopLevelKeyPattern.ReplaceAllString(s, AnsiCyan+"${1}"+AnsiReset+"${2}${3}")
-}
-
-// UnescapeJSONNewlines converts the JSON escape sequence \n inside string
-// literals of an already-marshaled JSON document into a real newline byte,
-// leaving every other escape sequence (\", \\, \t, \uXXXX, ...) untouched.
-// This makes multi-line string values (e.g. a ConfigMap data entry holding a
-// shell script) readable as real lines in pretty-printed table cells.
-func UnescapeJSONNewlines(s string) string {
-	var out strings.Builder
-	out.Grow(len(s))
-	inString := false
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if inString && c == '\\' && i+1 < len(s) {
-			next := s[i+1]
-			if next == 'n' {
-				out.WriteByte('\n')
-			} else {
-				out.WriteByte(c)
-				out.WriteByte(next)
-			}
-			i++
-			continue
-		}
-		if c == '"' {
-			inString = !inString
-		}
-		out.WriteByte(c)
-	}
-	return out.String()
 }

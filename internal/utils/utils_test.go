@@ -56,33 +56,3 @@ func TestColorizeYAMLTopLevelKeysSequenceRoot(t *testing.T) {
 		t.Errorf("sequence-item keys must not be colored: %q", out)
 	}
 }
-
-func TestUnescapeJSONNewlines(t *testing.T) {
-	in := `{
-  "teardown": "#!/bin/sh\nset -eu\nrm -rf \"$VOL_DIR\""
-}`
-	want := `{
-  "teardown": "#!/bin/sh
-set -eu
-rm -rf \"$VOL_DIR\""
-}`
-	if got := UnescapeJSONNewlines(in); got != want {
-		t.Errorf("UnescapeJSONNewlines() =\n%q\nwant\n%q", got, want)
-	}
-}
-
-func TestUnescapeJSONNewlinesLeavesEscapedBackslashAlone(t *testing.T) {
-	// JSON `\\n` is an escaped backslash followed by a literal "n", not a
-	// newline escape — it must not be converted to a real newline.
-	in := `{"path": "C:\\nope"}`
-	if got := UnescapeJSONNewlines(in); got != in {
-		t.Errorf("UnescapeJSONNewlines() must leave \\\\n untouched, got %q", got)
-	}
-}
-
-func TestUnescapeJSONNewlinesNoNewlinesUnchanged(t *testing.T) {
-	in := `{"phase": "Running", "message": "weird \" : value"}`
-	if got := UnescapeJSONNewlines(in); got != in {
-		t.Errorf("UnescapeJSONNewlines() changed a string with no \\n escapes: %q", got)
-	}
-}

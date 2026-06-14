@@ -17,28 +17,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// beautifyFormat selects how pretty-printed (beautify) struct/list/tuple/map
-// cells are rendered in table output.
-type beautifyFormat string
-
-const (
-	beautifyFormatJSON beautifyFormat = "json"
-	beautifyFormatYAML beautifyFormat = "yaml"
-)
-
-// beautifyFormatActive is the active beautify cell format for pretty
-// (pretty=true) struct/list/tuple/map cells in table output. YAML is the
-// default: multi-line string values render as literal block scalars instead
-// of JSON's escaped "\n", and with colorKeys enabled, top-level (root)
-// mapping keys are colored via ColorizeYAMLTopLevelKeys. Switch to
-// beautifyFormatJSON to fall back to pretty-printed JSON (with the same
-// real-newline fix via UnescapeJSONNewlines and full-depth key coloring via
-// ColorizeJSONKeys). This has no effect on --output json, --output csv, or
-// --disable-beauty, which always use compact JSON. It is a var (not const)
-// only so tests can override it; switching the default is still a one-line
-// code change.
-var beautifyFormatActive = beautifyFormatYAML
-
 // Options controls how Render collects and formats results.
 type Options struct {
 	Format          string // "table" | "json" | "csv"
@@ -137,18 +115,8 @@ func renderTable(w io.Writer, fields []string, schemaFields []physical.SchemaFie
 		for i, v := range row {
 			if i < len(schemaFields) {
 				cell := valueToStringTyped(v, schemaFields[i].Type, pretty)
-				if pretty && rendersAsJSON(v, schemaFields[i].Type) {
-					switch beautifyFormatActive {
-					case beautifyFormatJSON:
-						if colorKeys {
-							cell = utils.ColorizeJSONKeys(cell)
-						}
-						cell = utils.UnescapeJSONNewlines(cell)
-					case beautifyFormatYAML:
-						if colorKeys {
-							cell = utils.ColorizeYAMLTopLevelKeys(cell)
-						}
-					}
+				if pretty && colorKeys && rendersAsJSON(v, schemaFields[i].Type) {
+					cell = utils.ColorizeYAMLTopLevelKeys(cell)
 				}
 				cells[i] = cell
 			} else {
@@ -285,32 +253,54 @@ func rendersAsJSON(v octosql.Value, t octosql.Type) bool {
 
 // valueToStringTyped renders a cell value using the schema type for struct
 // field name resolution. Composite values (struct, list, tuple, map column)
-// become JSON (indented when pretty); all other types keep the valueToString
-// form. Marshal failures fall back to the octosql string form — rendering
-// never fails an executed query.
+// render as pretty YAML when pretty (beautify) is set — with null-valued
+// fields omitted — and as compact JSON otherwise (CSV and --disable-beauty);
+// all other types keep the valueToString form. Marshal failures fall back to
+// the octosql string form — rendering never fails an executed query.
 func valueToStringTyped(v octosql.Value, t octosql.Type, pretty bool) string {
 	if rendersAsJSON(v, t) {
 		native := valueToNativeTyped(v, t)
-		if pretty && beautifyFormatActive == beautifyFormatYAML {
-			b, err := yaml.Marshal(native)
+		if pretty {
+			b, err := yaml.Marshal(pruneNullsForYAML(native))
 			if err != nil {
 				return v.String()
 			}
 			return strings.TrimRight(string(b), "\n")
 		}
-		var b []byte
-		var err error
-		if pretty {
-			b, err = json.MarshalIndent(native, "", "  ")
-		} else {
-			b, err = json.Marshal(native)
-		}
+		b, err := json.Marshal(native)
 		if err != nil {
 			return v.String()
 		}
 		return string(b)
 	}
 	return valueToString(v)
+}
+
+// pruneNullsForYAML recursively removes map entries whose value is null so that
+// null-valued fields do not appear as `field: null` lines in YAML beautify
+// output. Nested mappings emptied by pruning are kept as empty mappings ({}),
+// and non-null empty values ("", [], {}, 0, false) are preserved.
+func pruneNullsForYAML(v interface{}) interface{} {
+	switch val := v.(type) {
+	case map[string]interface{}:
+		out := make(map[string]interface{}, len(val))
+		for k, e := range val {
+			pe := pruneNullsForYAML(e)
+			if pe == nil {
+				continue
+			}
+			out[k] = pe
+		}
+		return out
+	case []interface{}:
+		out := make([]interface{}, len(val))
+		for i, e := range val {
+			out[i] = pruneNullsForYAML(e)
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 func valueToString(v octosql.Value) string {

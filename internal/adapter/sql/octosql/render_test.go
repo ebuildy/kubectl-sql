@@ -135,10 +135,6 @@ var structTestRows = [][]octosql.Value{
 }
 
 func TestRenderTableStructPretty(t *testing.T) {
-	orig := beautifyFormatActive
-	beautifyFormatActive = beautifyFormatJSON
-	defer func() { beautifyFormatActive = orig }()
-
 	var buf bytes.Buffer
 	err := Render(execCtx(), &mockNode{rows: structTestRows}, Options{
 		Format: "table",
@@ -150,10 +146,10 @@ func TestRenderTableStructPretty(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, `"phase": "Running"`) {
+	if !strings.Contains(out, "phase: Running") {
 		t.Errorf("struct cell missing named field: %s", out)
 	}
-	if !strings.Contains(out, `"ready": true`) {
+	if !strings.Contains(out, "ready: true") {
 		t.Errorf("nested struct field not resolved: %s", out)
 	}
 	if strings.Contains(out, "\x1b[") {
@@ -178,31 +174,6 @@ func TestRenderTableStructCompact(t *testing.T) {
 	}
 	if strings.Contains(out, "\x1b[") {
 		t.Errorf("output must not contain ANSI codes with beauty disabled: %q", out)
-	}
-}
-
-func TestRenderTableStructColorKeys(t *testing.T) {
-	orig := beautifyFormatActive
-	beautifyFormatActive = beautifyFormatJSON
-	defer func() { beautifyFormatActive = orig }()
-
-	var buf bytes.Buffer
-	err := Render(execCtx(), &mockNode{rows: structTestRows}, Options{
-		Format:    "table",
-		Schema:    structTestSchema,
-		Writer:    &buf,
-		Pretty:    true,
-		ColorKeys: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	out := buf.String()
-	if !strings.Contains(out, utils.AnsiCyan+`"phase"`+utils.AnsiReset+":") {
-		t.Errorf("keys should be ANSI cyan: %q", out)
-	}
-	if strings.Contains(out, utils.AnsiCyan+`"Running"`) {
-		t.Errorf("values must not be colored: %q", out)
 	}
 }
 
@@ -257,10 +228,6 @@ func TestRenderScalarsUnchanged(t *testing.T) {
 }
 
 func TestRenderTableListPretty(t *testing.T) {
-	orig := beautifyFormatActive
-	beautifyFormatActive = beautifyFormatJSON
-	defer func() { beautifyFormatActive = orig }()
-
 	elem := octosql.String
 	listSchema := physical.Schema{
 		Fields: []physical.SchemaField{
@@ -279,18 +246,18 @@ func TestRenderTableListPretty(t *testing.T) {
 	}
 	var buf bytes.Buffer
 	err := Render(execCtx(), &mockNode{rows: rows}, Options{
-		Format:    "table",
-		Schema:    listSchema,
-		Writer:    &buf,
-		Pretty:    true,
-		ColorKeys: true,
+		Format: "table",
+		Schema: listSchema,
+		Writer: &buf,
+		Pretty: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, utils.AnsiCyan+`"name"`+utils.AnsiReset+`: "c1"`) {
-		t.Errorf("list cell should be pretty JSON array with decoded, key-colored elements: %q", out)
+	// List columns render as a YAML sequence of decoded objects.
+	if !strings.Contains(out, "- name: c1") || !strings.Contains(out, "- name: c2") {
+		t.Errorf("list cell should be a pretty YAML sequence of decoded elements: %q", out)
 	}
 }
 
@@ -368,32 +335,6 @@ var dataMapRows = [][]octosql.Value{
 	})},
 }
 
-func TestRenderTableMapMultilineStringRealNewlines(t *testing.T) {
-	orig := beautifyFormatActive
-	beautifyFormatActive = beautifyFormatJSON
-	defer func() { beautifyFormatActive = orig }()
-
-	var buf bytes.Buffer
-	err := Render(execCtx(), &mockNode{rows: dataMapRows}, Options{
-		Format: "table",
-		Schema: dataMapSchema,
-		Writer: &buf,
-		Pretty: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	out := buf.String()
-	if strings.Contains(out, `\n`) {
-		t.Errorf("pretty cell must not contain the JSON \\n escape sequence: %q", out)
-	}
-	for _, line := range []string{"#!/bin/sh", "set -eu", `rm -rf \"$VOL_DIR\"`} {
-		if !strings.Contains(out, line) {
-			t.Errorf("expected script line %q to appear verbatim: %q", line, out)
-		}
-	}
-}
-
 func TestRenderJSONMapMultilineStringStaysEscaped(t *testing.T) {
 	var buf bytes.Buffer
 	err := Render(execCtx(), &mockNode{rows: dataMapRows}, Options{
@@ -464,63 +405,7 @@ func TestRenderTableDisableBeautyMapMultilineStringStaysEscaped(t *testing.T) {
 	}
 }
 
-// multilineKeyLikeSchema has a single struct field whose string value, once
-// its embedded newlines become real line breaks, contains a line that looks
-// like a JSON "key": value pair — exercising the requirement that key
-// coloring is computed before newline conversion.
-var multilineKeyLikeSchema = physical.Schema{
-	Fields: []physical.SchemaField{
-		{Name: "data", Type: octosql.Type{
-			TypeID: octosql.TypeIDStruct,
-			Struct: struct{ Fields []octosql.StructField }{Fields: []octosql.StructField{
-				{Name: "value", Type: octosql.String},
-			}},
-		}},
-	},
-}
-
-var multilineKeyLikeRows = [][]octosql.Value{
-	{octosql.NewStruct([]octosql.Value{
-		octosql.NewString("start\n\"foo\": \"bar\"\nend"),
-	})},
-}
-
-func TestRenderTableColorKeysWithMultilineString(t *testing.T) {
-	orig := beautifyFormatActive
-	beautifyFormatActive = beautifyFormatJSON
-	defer func() { beautifyFormatActive = orig }()
-
-	var buf bytes.Buffer
-	err := Render(execCtx(), &mockNode{rows: multilineKeyLikeRows}, Options{
-		Format:    "table",
-		Schema:    multilineKeyLikeSchema,
-		Writer:    &buf,
-		Pretty:    true,
-		ColorKeys: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	out := buf.String()
-	if got := strings.Count(out, utils.AnsiCyan); got != 1 {
-		t.Errorf("expected exactly 1 colored key (\"value\"), got %d: %q", got, out)
-	}
-	if !strings.Contains(out, utils.AnsiCyan+`"value"`+utils.AnsiReset+":") {
-		t.Errorf("real JSON key not colored: %q", out)
-	}
-	if strings.Contains(out, utils.AnsiCyan+`"foo"`) {
-		t.Errorf("string content must not be colorized as a JSON key: %q", out)
-	}
-	if !strings.Contains(out, `\"foo\": \"bar\"`) {
-		t.Errorf("multi-line string content should appear verbatim, with its own quotes still JSON-escaped: %q", out)
-	}
-}
-
 func TestRenderTableYAMLBeautifyFormat(t *testing.T) {
-	orig := beautifyFormatActive
-	beautifyFormatActive = beautifyFormatYAML
-	defer func() { beautifyFormatActive = orig }()
-
 	var buf bytes.Buffer
 	err := Render(execCtx(), &mockNode{rows: structTestRows}, Options{
 		Format: "table",
@@ -541,10 +426,6 @@ func TestRenderTableYAMLBeautifyFormat(t *testing.T) {
 }
 
 func TestRenderTableYAMLBeautifyFormatMultilineString(t *testing.T) {
-	orig := beautifyFormatActive
-	beautifyFormatActive = beautifyFormatYAML
-	defer func() { beautifyFormatActive = orig }()
-
 	var buf bytes.Buffer
 	err := Render(execCtx(), &mockNode{rows: dataMapRows}, Options{
 		Format: "table",
@@ -567,10 +448,6 @@ func TestRenderTableYAMLBeautifyFormatMultilineString(t *testing.T) {
 }
 
 func TestRenderTableYAMLColorKeys(t *testing.T) {
-	orig := beautifyFormatActive
-	beautifyFormatActive = beautifyFormatYAML
-	defer func() { beautifyFormatActive = orig }()
-
 	var buf bytes.Buffer
 	err := Render(execCtx(), &mockNode{rows: structTestRows}, Options{
 		Format:    "table",
@@ -595,10 +472,6 @@ func TestRenderTableYAMLColorKeys(t *testing.T) {
 }
 
 func TestRenderTableYAMLColorKeysWithMultilineString(t *testing.T) {
-	orig := beautifyFormatActive
-	beautifyFormatActive = beautifyFormatYAML
-	defer func() { beautifyFormatActive = orig }()
-
 	var buf bytes.Buffer
 	err := Render(execCtx(), &mockNode{rows: dataMapRows}, Options{
 		Format:    "table",
@@ -621,6 +494,75 @@ func TestRenderTableYAMLColorKeysWithMultilineString(t *testing.T) {
 		if !strings.Contains(out, line) {
 			t.Errorf("expected script line %q to appear verbatim: %q", line, out)
 		}
+	}
+}
+
+// nullFieldSchema has a struct column whose `reason` field is null and whose
+// `message` field is an empty (but non-null) string.
+var nullFieldSchema = physical.Schema{
+	Fields: []physical.SchemaField{
+		{Name: "status", Type: octosql.Type{
+			TypeID: octosql.TypeIDStruct,
+			Struct: struct{ Fields []octosql.StructField }{Fields: []octosql.StructField{
+				{Name: "phase", Type: octosql.String},
+				{Name: "reason", Type: octosql.Type{TypeID: octosql.TypeIDNull}},
+				{Name: "message", Type: octosql.String},
+			}},
+		}},
+	},
+}
+
+var nullFieldRows = [][]octosql.Value{
+	{octosql.NewStruct([]octosql.Value{
+		octosql.NewString("Running"),
+		octosql.NewNull(),
+		octosql.NewString(""),
+	})},
+}
+
+func TestRenderTableYAMLOmitsNullFields(t *testing.T) {
+	var buf bytes.Buffer
+	err := Render(execCtx(), &mockNode{rows: nullFieldRows}, Options{
+		Format: "table",
+		Schema: nullFieldSchema,
+		Writer: &buf,
+		Pretty: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "reason") {
+		t.Errorf("null-valued field should be omitted from YAML beautify cell: %q", out)
+	}
+	if !strings.Contains(out, "phase: Running") {
+		t.Errorf("non-null field should remain: %q", out)
+	}
+	if !strings.Contains(out, `message: ""`) {
+		t.Errorf("empty-but-non-null field should be preserved: %q", out)
+	}
+}
+
+func TestRenderJSONKeepsNullFields(t *testing.T) {
+	var buf bytes.Buffer
+	err := Render(execCtx(), &mockNode{rows: nullFieldRows}, Options{
+		Format: "json",
+		Schema: nullFieldSchema,
+		Writer: &buf,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result []map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\noutput: %s", err, buf.String())
+	}
+	status, ok := result[0]["status"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("status is not an object: %v", result[0]["status"])
+	}
+	if v, present := status["reason"]; !present || v != nil {
+		t.Errorf("JSON output should keep null field as null, got present=%v value=%v", present, v)
 	}
 }
 
