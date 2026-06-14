@@ -148,6 +148,60 @@ func seedNginxNamespace(ctx context.Context, dynClient dynamic.Interface) error 
 	return err
 }
 
+// SeedPodsNamespace creates a fresh namespace with n Pending pods named
+// pod-0..pod-{n-1}. It is used by the DELETE scenarios, which need an isolated
+// set of objects they can remove without disturbing the shared fixtures other
+// scenarios assert on.
+func SeedPodsNamespace(ctx context.Context, dynClient dynamic.Interface, nsName string, n int) error {
+	ns := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "Namespace",
+			"metadata":   map[string]interface{}{"name": nsName},
+		},
+	}
+	if _, err := dynClient.Resource(namespacesGVR).Create(ctx, ns, metav1.CreateOptions{}); err != nil {
+		return fmt.Errorf("create namespace %s: %w", nsName, err)
+	}
+	for i := 0; i < n; i++ {
+		name := fmt.Sprintf("pod-%d", i)
+		pod := &unstructured.Unstructured{
+			Object: map[string]interface{}{
+				"apiVersion": "v1",
+				"kind":       "Pod",
+				"metadata": map[string]interface{}{
+					"name":      name,
+					"namespace": nsName,
+					"labels":    map[string]interface{}{"app": "doomed"},
+				},
+				"spec": map[string]interface{}{
+					"containers": []interface{}{
+						map[string]interface{}{"name": "app", "image": "nginx:latest"},
+					},
+				},
+			},
+		}
+		created, err := dynClient.Resource(podsGVR).Namespace(nsName).Create(ctx, pod, metav1.CreateOptions{})
+		if err != nil {
+			return fmt.Errorf("create pod %s/%s: %w", nsName, name, err)
+		}
+		created.Object["status"] = map[string]interface{}{"phase": string(corev1.PodPending)}
+		if _, err := dynClient.Resource(podsGVR).Namespace(nsName).UpdateStatus(ctx, created, metav1.UpdateOptions{}); err != nil {
+			return fmt.Errorf("set status pod %s/%s: %w", nsName, name, err)
+		}
+	}
+	return nil
+}
+
+// CountPods returns the number of pods currently in nsName.
+func CountPods(ctx context.Context, dynClient dynamic.Interface, nsName string) (int, error) {
+	list, err := dynClient.Resource(podsGVR).Namespace(nsName).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return 0, fmt.Errorf("list pods in %s: %w", nsName, err)
+	}
+	return len(list.Items), nil
+}
+
 func seedNamespace(ctx context.Context, dynClient dynamic.Interface, nsName string, pods, deployments, configmaps int) error {
 	ns := &unstructured.Unstructured{
 		Object: map[string]interface{}{

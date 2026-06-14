@@ -13,7 +13,7 @@ func TestFeatures(t *testing.T) {
 		ScenarioInitializer: InitializeScenario,
 		Options: &godog.Options{
 			Format:   "pretty",
-			Paths:    []string{"../e2e/features/integration.feature", "../e2e/features/map.feature"},
+			Paths:    []string{"../e2e/features/integration.feature", "../e2e/features/map.feature", "../e2e/features/delete.feature"},
 			TestingT: t,
 		},
 	}

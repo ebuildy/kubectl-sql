@@ -27,6 +27,19 @@ import (
 type QueryCommand struct {
 	config api.Config
 	k8s    k8sPort.DataSource
+	// inREPL is true when the command runs inside the interactive REPL. It
+	// suppresses the DELETE progress bar (whose redraws would fight the line
+	// editor) and selects the REPL input reader for the confirmation prompt.
+	inREPL bool
+	// in is the reader the DELETE confirmation prompt reads from (os.Stdin in
+	// production; overridable in tests).
+	in io.Reader
+	// stdinIsTTY reports whether stdin is an interactive terminal, deciding
+	// whether DELETE may prompt for confirmation.
+	stdinIsTTY bool
+	// mut, when non-nil, overrides the default mutator built by newMutator.
+	// Production leaves it nil; tests inject a fake.
+	mut sqlPort.Mutator
 }
 
 // NewQueryCommand builds a QueryCommand from CLI flags. It is the single wiring
@@ -36,12 +49,13 @@ func NewQueryCommand(ctx context.Context, config api.Config) (*QueryCommand, err
 		return nil, fmt.Errorf("kubectl-sql: connect to cluster: %w", err)
 	}
 
-	return &QueryCommand{config: config, k8s: ds}, nil
+	return &QueryCommand{config: config, k8s: ds, in: os.Stdin, stdinIsTTY: utils.StdinIsTTY()}, nil
 }
 
-// NewQueryCommand builds a QueryCommand from CLI flags. It is the single wiring
+// NewQueryCommandWithDataSource builds a QueryCommand from an already-wired
+// DataSource. It is the REPL path, so inREPL is set.
 func NewQueryCommandWithDataSource(config api.Config, k8s k8sPort.DataSource) (*QueryCommand, error) {
-	return &QueryCommand{config: config, k8s: k8s}, nil
+	return &QueryCommand{config: config, k8s: k8s, inREPL: true, in: os.Stdin, stdinIsTTY: utils.StdinIsTTY()}, nil
 }
 
 func (c *QueryCommand) Run(ctx context.Context, query string) error {
@@ -50,6 +64,13 @@ func (c *QueryCommand) Run(ctx context.Context, query string) error {
 	defer cancel()
 
 	if c.config.Watch {
+		// DELETE is a one-shot, confirmed mutation; re-running it on a poll
+		// interval is nonsensical, so reject the combination before resolving
+		// anything.
+		if isDeleteStatement(query) {
+			fmt.Fprintln(os.Stderr, "error: DELETE cannot be used with --watch")
+			return fmt.Errorf("kubectl-sql: DELETE cannot be combined with --watch")
+		}
 		return c.runWatch(ctx, query)
 	}
 
@@ -75,6 +96,11 @@ func (c *QueryCommand) RunWithWriter(ctx context.Context, query string, w io.Wri
 		}
 		resource := strings.ToLower(parts[2])
 		return c.runDescribeTable(ctx, resource)
+	}
+
+	if isDeleteStatement(query) {
+		log.Debug("cluster connection established", logger.String("mode", "delete"))
+		return c.runDelete(ctx, query, w)
 	}
 
 	config := sqlPort.Config{

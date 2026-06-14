@@ -18,6 +18,9 @@ func (fakeDataSource) InferSchema(context.Context, Resource) ([]schema.Field, er
 func (fakeDataSource) List(context.Context, Resource, ListOptions, func([]map[string]any) error) error {
 	return nil
 }
+func (fakeDataSource) Delete(context.Context, Resource, string, string, DeleteOptions) error {
+	return nil
+}
 
 func TestPortIsSatisfiable(t *testing.T) {
 	var _ DataSource = fakeDataSource{}

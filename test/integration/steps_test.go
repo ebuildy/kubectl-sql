@@ -22,6 +22,7 @@ type testContext struct {
 	stderr          string
 	exitCode        int
 	pickedNamespace string
+	deleteNS        string
 }
 
 func (tc *testContext) iRunKubectlSql(query string) error {
@@ -241,6 +242,40 @@ func (tc *testContext) theOutputProducesJQ(jqExpr string) error {
 	return fmt.Errorf("JQ expression %q produced no truthy result\noutput:\n%s", jqExpr, tc.stdout)
 }
 
+// iSeedNamespaceWithPods creates a fresh isolated namespace with n pods that
+// the DELETE scenarios then operate on.
+func (tc *testContext) iSeedNamespaceWithPods(n int) error {
+	tc.deleteNS = "del-" + randomName()
+	return SeedPodsNamespace(context.Background(), envDynClient, tc.deleteNS, n)
+}
+
+func (tc *testContext) iRunDeleteWithYes(query string) error {
+	return tc.runBinary("--namespace", tc.deleteNS, "-y", query)
+}
+
+func (tc *testContext) iRunDeleteWithoutYes(query string) error {
+	return tc.runBinary("--namespace", tc.deleteNS, query)
+}
+
+func (tc *testContext) iRunDeleteDryRun(query string) error {
+	return tc.runBinary("--namespace", tc.deleteNS, "--dry-run", query)
+}
+
+func (tc *testContext) iRunDeleteWatch(query string) error {
+	return tc.runBinary("--namespace", tc.deleteNS, "--watch", "--timeout", "3s", query)
+}
+
+func (tc *testContext) thatNamespaceHasPods(n int) error {
+	got, err := CountPods(context.Background(), envDynClient, tc.deleteNS)
+	if err != nil {
+		return err
+	}
+	if got != n {
+		return fmt.Errorf("expected %d pods in %s, got %d", n, tc.deleteNS, got)
+	}
+	return nil
+}
+
 // countDataRows counts data rows in table output, excluding the header row and separator lines.
 // The table format is:
 //
@@ -302,4 +337,12 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the stderr contains "([^"]*)"$`, tc.theStderrContains)
 	sc.Step(`^the stderr is empty$`, tc.theStderrIsEmpty)
 	sc.Step(`^I pick a random fixture namespace$`, tc.iPickARandomFixtureNamespace)
+
+	// DELETE scenarios operate on a freshly seeded, isolated namespace.
+	sc.Step(`^I seed a namespace with (\d+) pods$`, tc.iSeedNamespaceWithPods)
+	sc.Step(`^I run a DELETE "([^"]*)" with --yes in that namespace$`, tc.iRunDeleteWithYes)
+	sc.Step(`^I run a DELETE "([^"]*)" without --yes in that namespace$`, tc.iRunDeleteWithoutYes)
+	sc.Step(`^I run a DELETE "([^"]*)" with --dry-run in that namespace$`, tc.iRunDeleteDryRun)
+	sc.Step(`^I run a DELETE "([^"]*)" with --watch in that namespace$`, tc.iRunDeleteWatch)
+	sc.Step(`^that namespace has (\d+) pods$`, tc.thatNamespaceHasPods)
 }

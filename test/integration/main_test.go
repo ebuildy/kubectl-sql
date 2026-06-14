@@ -17,6 +17,7 @@ import (
 var (
 	envKubeconfig string
 	envNamespaces []string
+	envDynClient  dynamic.Interface
 )
 
 func TestMain(m *testing.M) {
@@ -73,6 +74,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "failed to create dynamic client: %v\n", err)
 		os.Exit(1)
 	}
+	envDynClient = dynClient
 
 	envNamespaces, err = SeedFixtures(context.Background(), dynClient)
 	if err != nil {

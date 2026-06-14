@@ -143,6 +143,33 @@ func (d *dataSource) List(ctx context.Context, r k8s.Resource, opts k8s.ListOpti
 	}
 }
 
+// Delete removes a single object via the dynamic client, choosing the
+// namespaced or cluster-scoped path from r.Namespaced and translating the
+// domain DeleteOptions into client-go metav1.DeleteOptions.
+func (d *dataSource) Delete(ctx context.Context, r k8s.Resource, namespace, name string, opts k8s.DeleteOptions) error {
+	ri := d.dyn.Resource(gvrFor(r))
+
+	delOpts := metav1.DeleteOptions{}
+	if opts.GracePeriodSeconds != nil {
+		delOpts.GracePeriodSeconds = opts.GracePeriodSeconds
+	}
+	if opts.PropagationPolicy != "" {
+		policy := metav1.DeletionPropagation(opts.PropagationPolicy)
+		delOpts.PropagationPolicy = &policy
+	}
+
+	var err error
+	if r.Namespaced {
+		err = ri.Namespace(namespace).Delete(ctx, name, delOpts)
+	} else {
+		err = ri.Delete(ctx, name, delOpts)
+	}
+	if err != nil {
+		return fmt.Errorf("k8s: delete %s/%s: %w", r.Name, name, err)
+	}
+	return nil
+}
+
 // splitGroupVersion splits "group/version" or "version" (core) into parts.
 func splitGroupVersion(gv string) (group, version string) {
 	if idx := strings.LastIndex(gv, "/"); idx >= 0 {

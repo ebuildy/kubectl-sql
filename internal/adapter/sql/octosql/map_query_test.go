@@ -30,6 +30,10 @@ func (mapFakeDS) InferSchema(context.Context, k8sport.Resource) ([]schema.Field,
 		}},
 	}, nil
 }
+func (mapFakeDS) Delete(_ context.Context, _ k8sport.Resource, _, _ string, _ k8sport.DeleteOptions) error {
+	return nil
+}
+
 func (mapFakeDS) List(_ context.Context, _ k8sport.Resource, _ k8sport.ListOptions, fn func([]map[string]any) error) error {
 	return fn([]map[string]any{
 		{
