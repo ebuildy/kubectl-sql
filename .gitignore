@@ -5,3 +5,4 @@ external/octosql
 !internal/adapter/datasources/k8s/testdata/swagger.json
 swagger.json
 pods.json
+openspec/.cache

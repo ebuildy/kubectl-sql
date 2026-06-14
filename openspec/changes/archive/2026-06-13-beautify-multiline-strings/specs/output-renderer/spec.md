@@ -1,53 +1,11 @@
-# Spec: Output Renderer
-
-## Purpose
-
-Defines the behavior of `internal/output.Render` — the direct result renderer that replaces octosql's `OutputPrinter`. It drives the octosql execution node, collects records, and writes output with no TTY dependency.
-
----
-
-## Requirements
-
-### Requirement: Output renderer collects and renders octosql records without TTY dependency
-The `internal/output` package SHALL provide a `Render` function that drives an octosql `execution.Node`, collects all records, applies ORDER BY and LIMIT, and writes results to an `io.Writer` with no dependency on terminal state or `/dev/tty`.
-
-#### Scenario: Table output renders to stdout
-- **WHEN** `Render` is called with format `table` and a node that produces rows
-- **THEN** a formatted table is written to the writer and the function returns nil
-
-#### Scenario: Process exits cleanly after render
-- **WHEN** `kubectl-sql "SELECT name FROM pods"` is run in any shell environment (TTY or not)
-- **THEN** the process prints results and exits 0 without hanging
-
-#### Scenario: COUNT(*) exits cleanly
-- **WHEN** `kubectl-sql "SELECT COUNT(*) FROM pods"` is run
-- **THEN** the process prints the count and exits 0 without hanging
-
----
-
-### Requirement: Output format is controlled by --output flag
-The renderer SHALL support `table` (default), `json`, and `csv` output formats selected via `--output/-o`.
-
-#### Scenario: Default format is table
-- **WHEN** `kubectl-sql "SELECT name FROM pods"` is run without `--output`
-- **THEN** output is a formatted ASCII table
-
-#### Scenario: JSON format outputs JSON array
-- **WHEN** `kubectl-sql --output json "SELECT name FROM pods"` is run
-- **THEN** output is a JSON array of objects, one per row, with field names as keys
-
-#### Scenario: CSV format outputs comma-separated values
-- **WHEN** `kubectl-sql --output csv "SELECT name FROM pods"` is run
-- **THEN** output is CSV with a header row followed by one row per result
-
----
+## ADDED Requirements
 
 ### Requirement: Pretty table cells render multi-line string values with real line breaks (JSON beautify format)
 
-The renderer SHALL render embedded newlines as real line break characters when the active beautify
-cell format is JSON (the default) and a pretty-printed (beautify) struct/list/tuple/map cell's JSON
-contains a string value with one or more embedded newlines, instead of the literal `\n` escape
-sequence. All other JSON escape sequences (`\"`, `\\`, `\t`, `\uXXXX`, etc.)
+When the active beautify cell format is JSON (the default) and a pretty-printed (beautify)
+struct/list/tuple/map cell's JSON contains a string value with one or more embedded newlines, the
+renderer SHALL render those embedded newlines as real line break characters in the cell instead of
+the literal `\n` escape sequence. All other JSON escape sequences (`\"`, `\\`, `\t`, `\uXXXX`, etc.)
 SHALL remain JSON-escaped and unchanged. This applies only to table output with beautify enabled
 (`pretty=true`); `--output json`, `--output csv`, and `--disable-beauty` cells SHALL continue to
 contain the literal `\n` escape sequence and remain valid, single-line-per-record JSON, unchanged
@@ -116,9 +74,9 @@ permit, producing real line breaks without `\n` escapes. `--output json`, `--out
 
 ### Requirement: YAML beautify cells color top-level keys when ColorKeys is enabled
 
-The renderer SHALL wrap the top-level (root, column-0) mapping keys of a pretty-printed struct/map
-cell in ANSI cyan when the active beautify cell format is YAML and `--color-keys` (`ColorKeys`) is
-enabled, matching the coloring style applied to JSON keys (`ColorizeJSONKeys`). Keys of nested
+When the active beautify cell format is YAML and `--color-keys` (`ColorKeys`) is enabled, the
+top-level (root, column-0) mapping keys of a pretty-printed struct/map cell SHALL be wrapped in
+ANSI cyan, matching the coloring style applied to JSON keys (`ColorizeJSONKeys`). Keys of nested
 maps, keys of sequence-item maps (e.g. `- name: c1`), scalar values, and the content of literal
 block scalars SHALL NOT be colorized — colorization is restricted to column-0 mapping keys so that
 the indented content of a literal block scalar (always indented relative to its key) can never be
@@ -147,7 +105,7 @@ codes, unchanged from before.
   YAML
 - **THEN** YAML cells render with no ANSI escape codes, unchanged from before this requirement
 
----
+## MODIFIED Requirements
 
 ### Requirement: Struct values render as JSON in table and CSV output
 
@@ -232,9 +190,9 @@ scalar cell rendering.
 
 ### Requirement: JSON keys are colored in pretty struct cells on TTY
 
-The renderer SHALL colorize JSON object keys at every nesting depth (and only keys — never values,
-braces, or punctuation) with an ANSI color (`ColorizeJSONKeys`) when rendering pretty-printed
-struct/list/tuple/map cells in table output and the active beautify format is JSON. Coloring SHALL be
+When rendering pretty-printed struct/list/tuple/map cells in table output and the active beautify
+format is JSON, the renderer SHALL colorize JSON object keys at every nesting depth (and only keys
+— never values, braces, or punctuation) with an ANSI color (`ColorizeJSONKeys`). Coloring SHALL be
 applied only when stdout is a TTY, `--no-color` is not set, and `--disable-beauty` is not set. CSV
 and `--output json` output SHALL never contain ANSI escape codes. When the active beautify format
 is YAML (the default), key coloring is scoped to top-level keys only — see "YAML beautify cells

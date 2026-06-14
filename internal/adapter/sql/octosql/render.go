@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/cube2222/octosql/execution"
@@ -13,7 +14,30 @@ import (
 	"github.com/cube2222/octosql/physical"
 	"github.com/ebuildy/kubectl-sql/internal/utils"
 	"github.com/olekukonko/tablewriter"
+	"gopkg.in/yaml.v3"
 )
+
+// beautifyFormat selects how pretty-printed (beautify) struct/list/tuple/map
+// cells are rendered in table output.
+type beautifyFormat string
+
+const (
+	beautifyFormatJSON beautifyFormat = "json"
+	beautifyFormatYAML beautifyFormat = "yaml"
+)
+
+// beautifyFormatActive is the active beautify cell format for pretty
+// (pretty=true) struct/list/tuple/map cells in table output. YAML is the
+// default: multi-line string values render as literal block scalars instead
+// of JSON's escaped "\n", and with colorKeys enabled, top-level (root)
+// mapping keys are colored via ColorizeYAMLTopLevelKeys. Switch to
+// beautifyFormatJSON to fall back to pretty-printed JSON (with the same
+// real-newline fix via UnescapeJSONNewlines and full-depth key coloring via
+// ColorizeJSONKeys). This has no effect on --output json, --output csv, or
+// --disable-beauty, which always use compact JSON. It is a var (not const)
+// only so tests can override it; switching the default is still a one-line
+// code change.
+var beautifyFormatActive = beautifyFormatYAML
 
 // Options controls how Render collects and formats results.
 type Options struct {
@@ -113,8 +137,18 @@ func renderTable(w io.Writer, fields []string, schemaFields []physical.SchemaFie
 		for i, v := range row {
 			if i < len(schemaFields) {
 				cell := valueToStringTyped(v, schemaFields[i].Type, pretty)
-				if colorKeys && pretty && rendersAsJSON(v, schemaFields[i].Type) {
-					cell = utils.ColorizeJSONKeys(cell)
+				if pretty && rendersAsJSON(v, schemaFields[i].Type) {
+					switch beautifyFormatActive {
+					case beautifyFormatJSON:
+						if colorKeys {
+							cell = utils.ColorizeJSONKeys(cell)
+						}
+						cell = utils.UnescapeJSONNewlines(cell)
+					case beautifyFormatYAML:
+						if colorKeys {
+							cell = utils.ColorizeYAMLTopLevelKeys(cell)
+						}
+					}
 				}
 				cells[i] = cell
 			} else {
@@ -237,6 +271,13 @@ func rendersAsJSON(v octosql.Value, t octosql.Type) bool {
 func valueToStringTyped(v octosql.Value, t octosql.Type, pretty bool) string {
 	if rendersAsJSON(v, t) {
 		native := valueToNativeTyped(v, t)
+		if pretty && beautifyFormatActive == beautifyFormatYAML {
+			b, err := yaml.Marshal(native)
+			if err != nil {
+				return v.String()
+			}
+			return strings.TrimRight(string(b), "\n")
+		}
 		var b []byte
 		var err error
 		if pretty {
