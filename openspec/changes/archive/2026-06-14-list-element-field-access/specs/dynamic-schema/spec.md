@@ -1,12 +1,4 @@
-# Spec: Dynamic Schema Inference
-
-## Purpose
-
-Defines how `kubectl-sql` infers the schema of a Kubernetes resource at query planning time. Schema inference drives column discovery for `SELECT *`, `DESCRIBE TABLE`, and type-aware filtering.
-
----
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Schema is inferred from OpenAPI primary, sample fallback
 `GetTable` SHALL derive the schema by starting from a hardcoded **default baseline** and then layering enrichment fields on top. The default baseline SHALL always include the top-level fields `name`, `namespace`, `labels`, `annotations`, `metadata`, `spec`, and `status`. The inferrer SHALL then merge, in order: (1) the fields from an **embedded build-time swagger snapshot** for resources it covers, (2) the fields discovered from the cluster's live OpenAPI v3 document, and (3) the fields discovered from a sample object (a small LIST). Each layer enriches the previous one; later layers are not merely fallbacks for earlier ones. Unknown fields for any given row SHALL resolve to NULL.
@@ -59,8 +51,6 @@ Inference SHALL classify a field as a map when OpenAPI declares `type: object` w
 A struct SHALL materialize as `octosql.TypeIDStruct` (so `->` field access works). A map SHALL materialize as `octosql.TypeIDList` whose element type is `octosql.Any` ("a typed map list"), holding that row's entries as a flat, alternating sequence `[key1, value1, key2, value2, ...]`. Each `keyN` SHALL be `octosql.String`; each `valueN` SHALL be the value's native octosql type (`Int`, `Float`, `Boolean`, or `String`), with nested objects/arrays falling back to a JSON-string element (matching how list-typed columns encode composite elements). octosql has no native map type and its Struct is a fixed positional shape, so a struct cannot represent per-row varying keys — a typed map list preserves both per-row keys and each value's native type.
 
 Slices (`FieldTypeList`) SHALL be typed as `octosql.TypeIDList`. When the list field carries element `SubFields` (a known element object schema), its `Element` type SHALL be an `octosql.TypeIDStruct` over those subfields, so indexing an element and accessing its fields (`list[index]->field`) type-checks. When the list field has no element `SubFields`, its `Element` type SHALL remain `String` (each element a JSON-encoded string), distinguishing it from a map list (`Element` is `Any`) at the type level.
-
-Map key access SHALL use bracket syntax `map['key']`, which the query rewriter lowers to `map_get(map, 'key')` (returns the key's value in its native type, or NULL if absent). `keys()`, `contains()`, `length()`, and `map_values()` SHALL operate on a map's flat key/value list (keys at even indices, values at odd indices), and JSON output SHALL render a map column as a JSON object with each value in its native JSON type (string, number, boolean).
 
 #### Scenario: A fixed-schema field is a struct
 - **WHEN** the schema is inferred for a pod's `metadata`

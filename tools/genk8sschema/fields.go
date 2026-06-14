@@ -51,33 +51,63 @@ func propertiesToFields(defs spec.Definitions, s spec.Schema, depth int, visitin
 	return fields
 }
 
-// schemaToField converts a single property schema to a field, recursing into
-// the referenced (or inline) definition when it is object-typed.
+// schemaToField converts a single property schema to a field. For object-typed
+// properties it recurses into the referenced (or inline) definition. For
+// array-typed properties whose element ($ref'd or inline) is an object, it
+// resolves the element's fields into the list field's SubFields (the element
+// schema), so list[index]->field works. Scalar/map/unresolvable elements leave
+// SubFields nil.
 func schemaToField(defs spec.Definitions, name string, s *spec.Schema, depth int, visiting map[string]bool) schema.Field {
 	ft, ref := classify(s)
 	f := schema.Field{Name: name, Type: ft}
 
-	if ft != schema.FieldTypeObject || depth >= maxDepth {
+	if depth >= maxDepth {
 		return f
 	}
 
+	switch ft {
+	case schema.FieldTypeObject:
+		f.SubFields = objectSubFields(defs, s, ref, depth, visiting)
+	case schema.FieldTypeList:
+		if item := itemsSchema(s); item != nil {
+			if eft, eref := classify(item); eft == schema.FieldTypeObject {
+				f.SubFields = objectSubFields(defs, item, eref, depth, visiting)
+			}
+		}
+	}
+	return f
+}
+
+// objectSubFields resolves the subfields of an object-typed schema, either by
+// following its $ref (ref != "") under the cycle guard, or by recursing into its
+// inline properties. Returns nil on a cycle or an unresolvable ref (truncating to
+// a childless object). Respects the maxDepth cap via the depth+1 recursion.
+func objectSubFields(defs spec.Definitions, s *spec.Schema, ref string, depth int, visiting map[string]bool) []schema.Field {
 	if ref != "" {
 		if visiting[ref] {
-			return f // cycle: truncate to a childless object
+			return nil // cycle: truncate to a childless object
 		}
 		target, ok := defs[ref]
 		if !ok {
-			return f
+			return nil
 		}
 		visiting[ref] = true
-		f.SubFields = propertiesToFields(defs, target, depth+1, visiting)
+		sub := propertiesToFields(defs, target, depth+1, visiting)
 		delete(visiting, ref)
-		return f
+		return sub
 	}
-
 	// Inline object schema (no $ref): recurse into its own properties.
-	f.SubFields = propertiesToFields(defs, *s, depth+1, visiting)
-	return f
+	return propertiesToFields(defs, *s, depth+1, visiting)
+}
+
+// itemsSchema returns the single element schema of an array property, or nil
+// when the array carries no resolvable single item schema (nil Items /
+// Items.Schema, e.g. a tuple-style schema).
+func itemsSchema(s *spec.Schema) *spec.Schema {
+	if s == nil || s.Items == nil {
+		return nil
+	}
+	return s.Items.Schema
 }
 
 // classify maps an OpenAPI v2 schema to a schema.FieldType, mirroring

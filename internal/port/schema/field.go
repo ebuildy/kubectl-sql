@@ -27,11 +27,30 @@ func (t FieldType) IsObjectLike() bool {
 
 // Field represents a single inferred column.
 // Name is the SQL-safe column name (dots replaced with underscores).
-// SubFields is populated for FieldTypeObject fields inferred from a map value.
+//
+// SubFields carries the nested schema and its meaning depends on Type:
+//   - FieldTypeObject: SubFields are the struct's own fields (e.g. metadata, spec).
+//   - FieldTypeList: SubFields describe the schema of each list ELEMENT (not
+//     subfields of the list itself). A list whose element is an object (e.g.
+//     spec->containers, whose element is a Container) carries that element's
+//     fields here, so list[index]->field resolves. A list with no resolvable
+//     element object schema (scalar/[]string, map elements) leaves SubFields nil.
+//   - FieldTypeMap: SubFields are unused (maps are open-ended key/value).
 type Field struct {
 	Name      string
 	Type      FieldType
 	SubFields []Field
+}
+
+// Get sub field by name
+func (f Field) Child(n string) *Field {
+	for _, ff := range f.SubFields {
+		if ff.Name == n {
+			return &ff
+		}
+	}
+
+	return nil
 }
 
 // ignoredFieldNames are server-managed metadata fields that add noise to query

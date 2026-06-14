@@ -185,6 +185,10 @@ func renderJSON(w io.Writer, fields []string, schemaFields []physical.SchemaFiel
 // valueToNativeTyped converts an octosql.Value to a Go native value using the
 // schema type for struct field name resolution.
 func valueToNativeTyped(v octosql.Value, t octosql.Type) interface{} {
+	// Indexing a typed list (e.g. spec->containers[0]) yields a nullable element
+	// type (Null | Struct). Strip the nullability so the struct/list branches below
+	// resolve field names instead of falling back to octosql's positional form.
+	t = octosql.NonNullable(t)
 	if v.TypeID == octosql.TypeIDStruct && t.TypeID == octosql.TypeIDStruct {
 		out := make(map[string]interface{}, len(v.Struct))
 		for i, elem := range v.Struct {
@@ -205,10 +209,22 @@ func valueToNativeTyped(v octosql.Value, t octosql.Type) interface{} {
 		}
 		return out
 	}
+	// A list whose element type is a struct (List<Struct>, e.g. spec->containers)
+	// carries real struct element values. Decode each element with the element
+	// struct type so its field names resolve, producing an array of named-key
+	// objects instead of opaque JSON strings.
+	if v.TypeID == octosql.TypeIDList && t.TypeID == octosql.TypeIDList &&
+		t.List.Element != nil && t.List.Element.TypeID == octosql.TypeIDStruct {
+		out := make([]interface{}, len(v.List))
+		for i, elem := range v.List {
+			out[i] = valueToNativeTyped(elem, *t.List.Element)
+		}
+		return out
+	}
 	// array_get()/list indexing extracts a single list element and types it
 	// Any|Null (see arrayGetFunction): like other list elements, its string form
 	// is JSON-encoded and must be decoded rather than emitted as an escaped string.
-	if v.TypeID == octosql.TypeIDString && octosql.NonNullable(t).TypeID == octosql.TypeIDAny {
+	if v.TypeID == octosql.TypeIDString && t.TypeID == octosql.TypeIDAny {
 		return decodeListElement(v)
 	}
 	return valueToNative(v)
@@ -253,6 +269,10 @@ func renderCSV(w io.Writer, fields []string, schemaFields []physical.SchemaField
 // rendered as JSON: structs (when the schema type carries the field names),
 // lists (including map columns carried as flat key/value lists), and tuples.
 func rendersAsJSON(v octosql.Value, t octosql.Type) bool {
+	// A list-element access (e.g. spec->containers[0]) carries a nullable struct
+	// type (Null | Struct); strip nullability so the struct cell still renders as
+	// a pretty object rather than octosql's positional { v1, v2 } form.
+	t = octosql.NonNullable(t)
 	switch v.TypeID {
 	case octosql.TypeIDStruct:
 		return t.TypeID == octosql.TypeIDStruct

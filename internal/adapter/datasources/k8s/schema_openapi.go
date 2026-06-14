@@ -123,23 +123,51 @@ func openAPISchemaToField(name string, s *spec.Schema) schema.Field {
 	ft := openAPITypeToFieldType(s)
 	f := schema.Field{Name: name, Type: ft}
 
-	if ft == schema.FieldTypeObject && len(s.Properties) > 0 {
-		keys := make([]string, 0, len(s.Properties))
-		for k := range s.Properties {
-			if schema.IsIgnoredField(k) {
-				continue
-			}
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		f.SubFields = make([]schema.Field, 0, len(keys))
-		for _, k := range keys {
-			sub := s.Properties[k]
-			f.SubFields = append(f.SubFields, schema.Field{Name: k, Type: openAPITypeToFieldType(&sub)})
+	switch ft {
+	case schema.FieldTypeObject:
+		f.SubFields = openAPIChildFields(s)
+	case schema.FieldTypeList:
+		// Resolve the array element's object schema into the list field's SubFields
+		// (the element schema), mirroring the swagger generator. Scalar/map/
+		// unresolvable elements leave SubFields nil.
+		if item := openAPIItemsSchema(s); item != nil && openAPITypeToFieldType(item) == schema.FieldTypeObject {
+			f.SubFields = openAPIChildFields(item)
 		}
 	}
 
 	return f
+}
+
+// openAPIChildFields builds the (one-level) subfields of an object schema from
+// its inline properties, sorted and with server-managed fields dropped. Returns
+// nil when the schema has no inline properties.
+func openAPIChildFields(s *spec.Schema) []schema.Field {
+	if len(s.Properties) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(s.Properties))
+	for k := range s.Properties {
+		if schema.IsIgnoredField(k) {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([]schema.Field, 0, len(keys))
+	for _, k := range keys {
+		sub := s.Properties[k]
+		out = append(out, schema.Field{Name: k, Type: openAPITypeToFieldType(&sub)})
+	}
+	return out
+}
+
+// openAPIItemsSchema returns the single element schema of an array property, or
+// nil when the array carries no resolvable single item schema.
+func openAPIItemsSchema(s *spec.Schema) *spec.Schema {
+	if s == nil || s.Items == nil {
+		return nil
+	}
+	return s.Items.Schema
 }
 
 // isOpenAPIMap reports whether an object schema is an open-ended map[string]T:

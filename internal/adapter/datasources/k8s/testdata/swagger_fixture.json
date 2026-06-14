@@ -64,6 +64,10 @@
       "type": "object",
       "properties": {
         "nodeName": {"type": "string"},
+        "nodeSelector": {
+          "type": "object",
+          "additionalProperties": {"type": "string"}
+        },
         "containers": {
           "type": "array",
           "items": {"$ref": "#/definitions/test.Container"}
@@ -75,9 +79,23 @@
       "properties": {
         "name": {"type": "string"},
         "image": {"type": "string"},
+        "command": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "resources": {"$ref": "#/definitions/test.ResourceRequirements"},
         "ports": {
           "type": "array",
           "items": {"$ref": "#/definitions/test.ContainerPort"}
+        }
+      }
+    },
+    "test.ResourceRequirements": {
+      "type": "object",
+      "properties": {
+        "limits": {
+          "type": "object",
+          "additionalProperties": {"type": "string"}
         }
       }
     },

@@ -153,16 +153,20 @@ codes, unchanged from before.
 
 When a result cell holds a struct-typed value, the renderer SHALL resolve its field names from the
 schema type, decode list/tuple values into arrays, and decode map columns (carried as flat
-key/value lists) into objects — matching what `--output json` produces for the same cell. CSV
-output SHALL always render the cell as compact single-line JSON inside a properly quoted CSV
-field. Table output with beautify enabled (`pretty=true`, `--disable-beauty` not set) SHALL render
-the cell using the active beautify cell format (an internal Go constant in
+key/value lists) into objects — matching what `--output json` produces for the same cell. When a
+cell holds a **list whose element type is a struct** (`List<Struct>`), the renderer SHALL decode
+each element into an object using the element struct type for field names (rather than treating the
+element as an opaque JSON-encoded string), so list-of-object columns render as arrays of named-key
+objects. CSV output SHALL always render the cell as compact single-line JSON inside a properly
+quoted CSV field. Table output with beautify enabled (`pretty=true`, `--disable-beauty` not set)
+SHALL render the cell using the active beautify cell format (an internal Go constant in
 `internal/adapter/sql/octosql/render.go`, defaulting to YAML, per "Beautify cell rendering format
 is selectable between YAML and JSON via an internal constant"): YAML format renders indented YAML
 (multi-line string values as literal block scalars, `|`); JSON format renders 2-space-indented
-JSON with embedded `\n` escapes converted to real line breaks. Scalar values SHALL render exactly
-as before. If conversion fails, the renderer SHALL fall back to the octosql string form rather
-than returning an error.
+JSON with embedded `\n` escapes converted to real line breaks. `List<Struct>` cells SHALL flow
+through this same beautify path — i.e. render as pretty YAML by default. Scalar values SHALL render
+exactly as before. If conversion fails, the renderer SHALL fall back to the octosql string form
+rather than returning an error.
 
 #### Scenario: Struct cell in table output is pretty YAML by default
 - **WHEN** `kubectl-sql "SELECT name, status FROM pods"` is run with table output and beautify
@@ -194,6 +198,13 @@ than returning an error.
 - **THEN** the cell contains a pretty-printed array (a YAML sequence by default, or a JSON array
   if the internal constant is set to `beautifyFormatJSON`), with JSON-string elements decoded to
   objects
+
+#### Scenario: List-of-struct cells render as arrays of named-key objects
+- **WHEN** a query selects a list column whose element type is a struct (e.g.
+  `SELECT spec->containers FROM pods`) with table output and beautify enabled
+- **THEN** the cell contains a pretty YAML sequence (default) of mappings whose keys are the
+  element struct field names (e.g. `- name: nginx` / `  image: nginx`), not a sequence of escaped
+  JSON strings, and `--output json` renders the same column as an array of objects
 
 #### Scenario: Map cells render as objects
 - **WHEN** a query selects a map column (e.g. `metadata.labels`) with table output

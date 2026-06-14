@@ -17,8 +17,11 @@ var guaranteedNames = map[string]bool{
 // It does NOT prepend guaranteed fields — that is the inferrer's responsibility.
 // Returns nil when obj is nil or empty.
 // Top-level map values produce a FieldTypeObject field with SubFields one level deep.
-// Top-level slice values produce a FieldTypeList field with no SubFields; element
-// access uses array indexing (e.g. spec->volumes[0]) rather than flattened columns.
+// Top-level slice values produce a FieldTypeList field with no SubFields: sample
+// data carries no element schema, so the sample walk cannot populate list element
+// SubFields (unlike the swagger/OpenAPI layers, which resolve the element object
+// schema into a list field's SubFields per the Field doc contract). Element access
+// uses array indexing (e.g. spec->volumes[0]) rather than flattened columns.
 // No flattened dot-alias columns are emitted — nested map access uses the -> operator.
 func walkObject(obj map[string]interface{}) []Field {
 	if len(obj) == 0 {

@@ -39,14 +39,41 @@ func TestDefToFields_Pod(t *testing.T) {
 	require.Equal(t, schema.FieldTypeObject, specField.Type)
 	assert.Equal(t, schema.FieldTypeString, fieldByName(t, specField.SubFields, "nodeName").Type)
 
+	// An object-element array resolves its element schema into the list field's
+	// SubFields (8.1): containers is a list whose element carries name, image, ports.
 	containers := fieldByName(t, specField.SubFields, "containers")
 	assert.Equal(t, schema.FieldTypeList, containers.Type)
-	assert.Nil(t, containers.SubFields, "array fields remain leaves with no SubFields")
+	require.NotEmpty(t, containers.SubFields, "object-element array carries its element schema")
+	assert.Equal(t, schema.FieldTypeString, fieldByName(t, containers.SubFields, "name").Type)
+	assert.Equal(t, schema.FieldTypeString, fieldByName(t, containers.SubFields, "image").Type)
+
+	// Deeply nested element subfields resolve through $ref chains (8.3): the
+	// Container element's ports is itself an object-element list (ContainerPort).
+	ports := fieldByName(t, containers.SubFields, "ports")
+	assert.Equal(t, schema.FieldTypeList, ports.Type)
+	require.NotEmpty(t, ports.SubFields, "nested object-element list carries its element schema")
+	assert.Equal(t, schema.FieldTypeInt, fieldByName(t, ports.SubFields, "containerPort").Type)
+
+	// A scalar-element array stays a childless list leaf (8.2): command is []string.
+	command := fieldByName(t, containers.SubFields, "command")
+	assert.Equal(t, schema.FieldTypeList, command.Type)
+	assert.Nil(t, command.SubFields, "scalar-element array has no element SubFields")
+
+	// Open-ended maps stay maps at every depth, including inside a list element (8.9).
+	assert.Equal(t, schema.FieldTypeMap, fieldByName(t, specField.SubFields, "nodeSelector").Type)
+	resources := fieldByName(t, containers.SubFields, "resources")
+	require.Equal(t, schema.FieldTypeObject, resources.Type)
+	limits := fieldByName(t, resources.SubFields, "limits")
+	assert.Equal(t, schema.FieldTypeMap, limits.Type)
+	assert.Nil(t, limits.SubFields, "open-ended map nested in a list element has no SubFields")
 
 	status := fieldByName(t, fields, "status")
 	require.Equal(t, schema.FieldTypeObject, status.Type)
 	assert.Equal(t, schema.FieldTypeString, fieldByName(t, status.SubFields, "phase").Type)
-	assert.Equal(t, schema.FieldTypeList, fieldByName(t, status.SubFields, "conditions").Type)
+	// status->conditions is an object-element list (PodCondition).
+	conditions := fieldByName(t, status.SubFields, "conditions")
+	assert.Equal(t, schema.FieldTypeList, conditions.Type)
+	assert.Equal(t, schema.FieldTypeString, fieldByName(t, conditions.SubFields, "type").Type)
 }
 
 func TestDefToFields_CycleGuard(t *testing.T) {
