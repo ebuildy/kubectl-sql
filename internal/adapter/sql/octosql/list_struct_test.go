@@ -93,6 +93,10 @@ func (listStructFakeDS) InferSchema(context.Context, k8sport.Resource) ([]schema
 		}},
 	}, nil
 }
+func (listStructFakeDS) Delete(_ context.Context, _ k8sport.Resource, _, _ string, _ k8sport.DeleteOptions) error {
+	return nil
+}
+
 func (listStructFakeDS) List(_ context.Context, _ k8sport.Resource, _ k8sport.ListOptions, fn func([]map[string]any) error) error {
 	return fn([]map[string]any{
 		{

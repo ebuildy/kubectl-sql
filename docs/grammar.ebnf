@@ -6,3 +6,25 @@
 (* query-string rewrite step. Map key lookup, array indexing, key *)
 (* enumeration, and membership checks are plain function calls: *)
 (* map_get(field, 'key'), array_get(list, n), keys(field), contains(field, val). *)
+
+(* DELETE statement — the only mutating statement. It is intercepted before *)
+(* the octosql SELECT pipeline and routed to the mutator adapter. The WHERE *)
+(* clause uses the exact same syntax/semantics as a SELECT WHERE. Keywords are *)
+(* matched case-insensitively. *)
+
+(* The clauses after the resource are the trailing clauses of the resolving *)
+(* SELECT and are forwarded to it verbatim, so WHERE / ORDER BY / LIMIT / *)
+(* OFFSET behave exactly as in a SELECT (e.g. delete only the oldest N rows). *)
+delete_stmt   = "DELETE" , [ delete_hints ] , [ "FROM" ] , resource ,
+                [ where_clause ] , [ order_by_clause ] , [ limit_clause ] , [ offset_clause ] ;
+
+(* kubectl-delete options ride in a MySQL-style hint comment placed right *)
+(* after DELETE; the comment opens with slash-star and closes with star-slash *)
+(* and holds a comma-separated list of the hints below. *)
+delete_hints  = comment_open , delete_hint , { "," , delete_hint } , comment_close ;
+delete_hint   = "force"
+              | "grace-period" , "=" , integer
+              | "cascade" , "=" , ( "background" | "foreground" | "orphan" ) ;
+
+comment_open  = "/" , "*" ;
+comment_close = "*" , "/" ;

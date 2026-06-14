@@ -2,6 +2,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -43,6 +44,9 @@ Example:
 		outputFormat, _ := cmd.Flags().GetString("output")
 		noColor, _ := cmd.Flags().GetBool("no-color")
 		disableBeauty, _ := cmd.Flags().GetBool("disable-beauty")
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		watch, _ := cmd.Flags().GetBool("watch")
+		yes, _ := cmd.Flags().GetBool("yes")
 
 		config := api.Config{
 			Kubeconfig:    kubeconfig,
@@ -53,6 +57,9 @@ Example:
 			Timeout:       timeout,
 			NoColor:       noColor,
 			DisableBeauty: disableBeauty,
+			DryRun:        dryRun,
+			Watch:         watch,
+			Yes:           yes,
 			Out:           os.Stdout,
 		}
 
@@ -83,6 +90,10 @@ Example:
 // spawned by octosql's ristretto caches which have no cleanup path.
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
+		var ec api.ExitError
+		if errors.As(err, &ec) {
+			os.Exit(ec.Code)
+		}
 		os.Exit(1)
 	}
 	os.Exit(0)
@@ -100,6 +111,7 @@ func init() {
 	rootCmd.PersistentFlags().Bool("explain", false, "Print execution plan without running query")
 	rootCmd.PersistentFlags().Bool("dry-run", false, "Validate SQL without hitting the API")
 	rootCmd.PersistentFlags().BoolP("watch", "w", false, "Stream live resource changes via the Kubernetes WATCH API")
+	rootCmd.PersistentFlags().BoolP("yes", "y", false, "Skip the DELETE confirmation prompt (required for non-interactive DELETE)")
 	rootCmd.PersistentFlags().BoolP("repl", "i", false, "Open an interactive SQL REPL (default when no query is given)")
 	rootCmd.PersistentFlags().CountP("verbose", "v", "Increase log verbosity: -v=info, -vv=debug, -vvv=trace (default error)")
 }

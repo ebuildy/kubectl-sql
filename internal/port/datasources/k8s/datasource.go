@@ -28,6 +28,17 @@ type ListOptions struct {
 	PageSize  int64
 }
 
+// DeleteOptions controls a Delete call, expressed in library-free domain terms.
+// The adapter translates these onto the client-go delete options.
+type DeleteOptions struct {
+	// GracePeriodSeconds, when non-nil, sets the deletion grace period in
+	// seconds (0 means immediate/force deletion).
+	GracePeriodSeconds *int64
+	// PropagationPolicy selects the cascade behaviour: "" (cluster default),
+	// "Background", "Foreground", or "Orphan".
+	PropagationPolicy string
+}
+
 // DataSource is the Kubernetes data-source port. Consumers depend only on this
 // interface; the concrete client-go implementation lives in the adapter package.
 type DataSource interface {
@@ -41,4 +52,9 @@ type DataSource interface {
 	// size. pageFn is called once per page so callers can stream without buffering
 	// the whole cluster in memory.
 	List(ctx context.Context, r Resource, opts ListOptions, pageFn func(page []map[string]any) error) error
+	// Delete removes a single object identified by its resource, namespace, and
+	// name, honouring opts. It is the only mutating method on the port. For a
+	// cluster-scoped resource the namespace is ignored. It returns nil on success
+	// or a wrapped error on failure.
+	Delete(ctx context.Context, r Resource, namespace, name string, opts DeleteOptions) error
 }

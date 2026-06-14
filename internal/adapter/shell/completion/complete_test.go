@@ -57,6 +57,10 @@ func (f *fakeDataSource) List(ctx context.Context, r dataSourcePort.Resource, op
 	return nil
 }
 
+func (f *fakeDataSource) Delete(context.Context, dataSourcePort.Resource, string, string, dataSourcePort.DeleteOptions) error {
+	return nil
+}
+
 // doString runs Do with the cursor at the end of line.
 func doString(c shellCompletionPort.ShellCompletionRunner, line string) []string {
 	return doAt(c, line, len([]rune(line)))

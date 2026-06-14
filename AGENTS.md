@@ -315,9 +315,13 @@ This applies unconditionally — even if the user asks the assistant to commit o
 5. **Preserve backward compatibility.** The SQL grammar is a public interface — removing or
    renaming clauses is a breaking change and requires a proposal.
 
-6. **Security.** The plugin only performs read operations (LIST, GET, WATCH). It must never
-   write, patch, delete, or exec into any resource. If asked to add a write path, create a
-   change with a proposal first and flag it explicitly.
+6. **Security.** The plugin performs read operations (LIST, GET, WATCH) plus a single sanctioned
+   mutating path: `DELETE`. `DELETE` is gated behind a mandatory deletion-set preview and an
+   interactive confirmation (default *no*; `--yes` required when non-interactive), and goes through
+   the `mutator` SQL adapter and the `DataSource.Delete` port — see the `delete-statement`,
+   `sql-mutator-adapter`, and `k8s-datasource-port` specs. No other write path is allowed: the
+   plugin must never create, update, patch, apply, or exec into any resource. If asked to add a new
+   write path (including UPDATE), create a change with a proposal first and flag it explicitly.
 
 7. **Context resets between planning and coding.** After `/opsx:ff`, start a fresh session
    referencing the spec files — do not implement directly in the planning thread.

@@ -20,6 +20,7 @@ kubectl sql "SELECT name, namespace, status->phase FROM pods WHERE status->phase
 ## Features
 
 - **Full SQL subset** — `SELECT`, `WHERE`, `ORDER BY`, `LIMIT`, `GROUP BY`, aggregates (`COUNT`, `SUM`, …), `DISTINCT`
+- **Delete or update** - `DELETE` Kubernetes resources with SQL query
 - **Dynamic schema** — columns are inferred from the OpenAPI spec (with sample-object fallback), so `SELECT *` returns real resource fields like `status`, `spec`, `metadata`
 - **Nested field access** — use `->` for struct traversal (`metadata->labels->app`)
 - **Array indexing** — `array_get(spec->volumes, 0)->configMap` resolves the first volume's ConfigMap name
@@ -295,7 +296,27 @@ kubectl sql --dry-run "SELECT name FROM doesnotexist"
 
 # Show execution plan
 kubectl sql --explain "SELECT name FROM pods WHERE status->phase = 'Pending'"
+
+# Delete every Pending pod (previews the set, then asks for confirmation)
+kubectl sql "DELETE pod WHERE status->phase = 'Pending'"
+
+# Force-delete with delete options via a MySQL-style hint comment
+kubectl sql "DELETE /* force, grace-period=0 */ FROM pod WHERE status->phase = 'Pending'"
+
+# Orphan a deployment's children instead of cascading the delete
+kubectl sql "DELETE /* cascade=orphan */ deployment WHERE name = 'web'"
+
+# Skip the confirmation prompt for scripted use (required when non-interactive)
+kubectl sql -y "DELETE pod WHERE status->phase = 'Succeeded'"
+
+# Preview the deletion set without deleting anything
+kubectl sql --dry-run "DELETE pod WHERE status->phase = 'Pending'"
 ```
+
+> **Note:** `DELETE` is the only mutating statement and requires the `delete`
+> RBAC verb on the target resource. It always previews the matched objects and
+> asks for confirmation (default *no*); pass `-y/--yes` to skip the prompt.
+> `DELETE` cannot be combined with `--watch`.
 
 ## How it works
 
@@ -330,18 +351,20 @@ the source of truth for how each feature works.
 
 | Spec | Description |
 |---|---|
+| [DELETE Statement](openspec/specs/delete-statement/spec.md) | Defines `DELETE`: grammar with hint-comment options, deletion-set preview, confirmation/`--yes`, bounded-parallel delete, and exit codes. |
 | [DESCRIBE TABLE](openspec/specs/describe-table/spec.md) | Lists all columns and types for a resource via `DESCRIBE TABLE <resource>`, inferred from OpenAPI or a sample object. |
 | [Dynamic Schema Inference](openspec/specs/dynamic-schema/spec.md) | Defines how resource schemas are inferred at query time, driving column discovery for `SELECT *`, `DESCRIBE TABLE`, and typed filtering. |
 | [envtest Integration Tests](openspec/specs/envtest-e2e/spec.md) | Behavioral contract for the envtest-backed integration suite that exercises the full SQL query path without a live cluster. |
 | [JSON File Datasource](openspec/specs/json-file-datasource/spec.md) | Defines querying local JSON Lines files (`.json`/`.jsonl`/`.ndjson`) via `FROM <path>`, including `JOIN`s between files. |
 | [Kubernetes Datasource](openspec/specs/k8s-datasource/spec.md) | Defines how resource kinds are resolved, fetched, mapped to rows, and namespace-scoped by the Kubernetes datasource layer. |
-| [Kubernetes Data-Source Port](openspec/specs/k8s-datasource-port/spec.md) | Defines the hexagonal port/adapter boundary that keeps `client-go`/`apimachinery` code isolated and the data source swappable. |
+| [Kubernetes Data-Source Port](openspec/specs/k8s-datasource-port/spec.md) | Defines the hexagonal port/adapter boundary that isolates `client-go`/`apimachinery` and exposes listing, schema, discovery, and a single delete operation. |
 | [Logging](openspec/specs/logging/spec.md) | Defines leveled `-v`/`-vv` logging to stderr, shared via context, behind a port/adapter boundary, with timed debug/info traces. |
 | [Output Renderer](openspec/specs/output-renderer/spec.md) | Defines `internal/output.Render`, the TTY-independent renderer that drives execution and writes query results. |
 | [Project Scaffold](openspec/specs/project-scaffold/spec.md) | Baseline structural requirements: Go module setup, CLI entrypoint, flags, package layout, and Makefile targets. |
 | [SHOW TABLES](openspec/specs/show-tables/spec.md) | Defines `SHOW TABLES`, which lists all Kubernetes API resource types queryable via `kubectl-sql`. |
 | [SQL Engine Port](openspec/specs/sql-engine-port/spec.md) | Defines the hexagonal port/adapter boundary that confines the octosql engine and keeps it swappable. |
-| [SQL Execution](openspec/specs/sql-execution/spec.md) | End-to-end SQL query execution contract: CLI input, SELECT/WHERE/LIMIT semantics, and flag forwarding. |
+| [SQL Execution](openspec/specs/sql-execution/spec.md) | End-to-end SQL query execution contract: CLI input, SELECT/WHERE/LIMIT semantics, DELETE routing to the mutator adapter, and flag forwarding. |
+| [SQL Mutator Adapter](openspec/specs/sql-mutator-adapter/spec.md) | Defines the `mutator` adapter that owns mutating statements, resolving targets via octosql and deleting through the DataSource port with bounded parallelism. |
 | [SQL REPL](openspec/specs/sql-repl/spec.md) | Defines the interactive REPL: prompt loop, history, batch fallback, and Tab autocomplete for keywords, tables, and columns. |
 | [Swagger Schema Provider](openspec/specs/swagger-schema-provider/spec.md) | Embeds a generated Kubernetes OpenAPI snapshot so `spec`/`status` field structure is available without a cluster round trip. |
 | [Watch Mode](openspec/specs/watch-mode/spec.md) | Defines the `--watch`/`-w` flag, which re-executes the query every 5 seconds and reprints the result table until Ctrl-C or `--timeout`. |

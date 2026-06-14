@@ -28,6 +28,9 @@ func (f fakeDataSource) InferSchema(context.Context, k8sPort.Resource) ([]schema
 func (f fakeDataSource) List(context.Context, k8sPort.Resource, k8sPort.ListOptions, func([]map[string]any) error) error {
 	return nil
 }
+func (f fakeDataSource) Delete(context.Context, k8sPort.Resource, string, string, k8sPort.DeleteOptions) error {
+	return nil
+}
 
 func TestRunDescribeTable_SchemaColumn(t *testing.T) {
 	fields := []schema.Field{

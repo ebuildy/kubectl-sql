@@ -198,6 +198,14 @@ func countDataRows(output string) int {
 	return count
 }
 
+// DELETE scenarios require seeding an isolated namespace with a dynamic client,
+// which the plain e2e suite (no envtest) cannot do — they are exercised by the
+// integration suite. Here every DELETE step skips so the scenarios are reported
+// as skipped rather than undefined.
+func (tc *testContext) deleteStepSkipped(string) error { return godog.ErrSkip }
+func (tc *testContext) seedStepSkipped(int) error      { return godog.ErrSkip }
+func (tc *testContext) countStepSkipped(int) error     { return godog.ErrSkip }
+
 // InitializeScenario registers step definitions with the godog suite.
 func InitializeScenario(sc *godog.ScenarioContext) {
 	tc := &testContext{}
@@ -213,4 +221,12 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the output has at most (\d+) rows$`, tc.theOutputHasAtMostRows)
 	sc.Step(`^the output has between (\d+) and (\d+) rows$`, tc.theOutputHasBetweenAndRows)
 	sc.Step(`^I pick a random fixture namespace$`, tc.iPickARandomFixtureNamespace)
+
+	// DELETE steps (run for real by the integration suite; skipped here).
+	sc.Step(`^I seed a namespace with (\d+) pods$`, tc.seedStepSkipped)
+	sc.Step(`^I run a DELETE "([^"]*)" with --yes in that namespace$`, tc.deleteStepSkipped)
+	sc.Step(`^I run a DELETE "([^"]*)" without --yes in that namespace$`, tc.deleteStepSkipped)
+	sc.Step(`^I run a DELETE "([^"]*)" with --dry-run in that namespace$`, tc.deleteStepSkipped)
+	sc.Step(`^I run a DELETE "([^"]*)" with --watch in that namespace$`, tc.deleteStepSkipped)
+	sc.Step(`^that namespace has (\d+) pods$`, tc.countStepSkipped)
 }

@@ -17,6 +17,8 @@ type Config struct {
 	DisableBeauty bool
 	Timeout       time.Duration
 	Watch         bool
+	DryRun        bool
+	Yes           bool
 	Out           io.Writer
 }
 
@@ -24,3 +26,14 @@ type Config struct {
 type Command interface {
 	Run(ctx context.Context, cfg Config, query string, w io.Writer) error
 }
+
+// ExitError carries a specific process exit code alongside an error, so a
+// command can signal e.g. a Kubernetes API failure (exit 2) distinctly from a
+// generic query/parse error (exit 1). cmd.Execute unwraps it via errors.As.
+type ExitError struct {
+	Code int
+	Err  error
+}
+
+func (e ExitError) Error() string { return e.Err.Error() }
+func (e ExitError) Unwrap() error { return e.Err }

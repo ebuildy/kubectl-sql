@@ -37,6 +37,10 @@ func (f *fakeDataSource) List(_ context.Context, _ k8sport.Resource, _ k8sport.L
 	return nil
 }
 
+func (f *fakeDataSource) Delete(_ context.Context, _ k8sport.Resource, _, _ string, _ k8sport.DeleteOptions) error {
+	return nil
+}
+
 func newFakeDataSource() *fakeDataSource {
 	return &fakeDataSource{resolvable: map[string]bool{"pods": true, "pod": true, "deployments": true}}
 }
