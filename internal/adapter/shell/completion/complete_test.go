@@ -353,6 +353,47 @@ func TestComplete_ColumnCaching(t *testing.T) {
 	}
 }
 
+func TestComplete_SlashCommands(t *testing.T) {
+	c := NewShellCompletion(context.Background(), &fakeDataSource{tables: []string{"pods", "nodes"}}, []string{"upper"})
+
+	// Bare slash offers all commands, alphabetically.
+	all := doString(c, "/")
+	for _, cmd := range []string{"/clear", "/help", "/history-clear", "/quit", "/tables", "/version"} {
+		if !contains(all, cmd) {
+			t.Errorf("'/' completion: got %v, want to contain %q", all, cmd)
+		}
+	}
+
+	// A prefix narrows to a single command.
+	if got := doString(c, "/cl"); !contains(got, "/clear") || len(got) != 1 {
+		t.Errorf("'/cl' completion: got %v, want exactly [/clear]", got)
+	}
+
+	// A hyphenated command completes past the hyphen.
+	if got := doString(c, "/history-c"); !contains(got, "/history-clear") || len(got) != 1 {
+		t.Errorf("'/history-c' completion: got %v, want exactly [/history-clear]", got)
+	}
+
+	// Case-insensitive match: "/VE" resolves to the /version command (the helper
+	// reconstructs typed-prefix + suffix, so the candidate reads "/VErsion").
+	if got := doString(c, "/VE"); len(got) != 1 || strings.ToLower(got[0]) != "/version" {
+		t.Errorf("'/VE' completion: got %v, want a single /version candidate", got)
+	}
+}
+
+func TestComplete_SlashExcludesSQL(t *testing.T) {
+	c := NewShellCompletion(context.Background(), &fakeDataSource{tables: []string{"pods"}}, nil)
+
+	// '/s' matches no slash command and must never offer SQL keywords like SELECT.
+	got := doString(c, "/s")
+	if len(got) != 0 {
+		t.Errorf("'/s' should yield no candidates (no slash command matches), got %v", got)
+	}
+	if contains(got, "SELECT") || contains(got, "select") {
+		t.Errorf("slash word must not offer SQL keywords: %v", got)
+	}
+}
+
 func contains(ss []string, s string) bool {
 	for _, x := range ss {
 		if x == s {

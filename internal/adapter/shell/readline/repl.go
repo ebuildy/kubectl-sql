@@ -50,6 +50,15 @@ type NewReadlineShell struct {
 	// Completion, when non-nil, enables Tab autocomplete in interactive mode
 	// for SQL keywords, table names, and column names.
 	Completion shellCompletionPort.ShellCompletionRunner
+	// Version is the build version string reported by the /version command
+	// (defaults to "dev" when not injected at build time).
+	Version string
+	// ProjectURL is the project home reported by the /version command.
+	ProjectURL string
+	// clearHistory resets the interactive recall history (wired to
+	// rl.ResetHistory in runInteractive). Nil off a TTY, making /history-clear a
+	// no-op there.
+	clearHistory func()
 }
 
 // Run starts the REPL. If the input is not a TTY it falls back to batch mode
@@ -76,6 +85,14 @@ func (s *NewReadlineShell) runBatch(ctx context.Context) error {
 	for scanner.Scan() {
 		query := normalizeQuery(scanner.Text())
 		if query == "" {
+			continue
+		}
+		// Control commands are honored off a TTY too: quit/exit and /quit stop
+		// the batch, /clear is a no-op, and the rest behave as on a TTY.
+		if handled, exit := s.handleCommand(ctx, query, s.IOOut); handled {
+			if exit {
+				return nil
+			}
 			continue
 		}
 		logger.FromContext(ctx).Debug("repl executing query", logger.String("query", query))
@@ -110,6 +127,9 @@ func (s *NewReadlineShell) runInteractive(ctx context.Context) error {
 	}
 	defer rl.Close() //nolint:errcheck
 
+	// Wire /history-clear to the readline instance's history reset.
+	s.clearHistory = rl.ResetHistory
+
 	for {
 		line, readErr := rl.Readline()
 		switch readErr {
@@ -130,7 +150,7 @@ func (s *NewReadlineShell) runInteractive(ctx context.Context) error {
 			continue
 		}
 
-		if handled, exit := handleSlashCommand(query, s.IOOut); handled {
+		if handled, exit := s.handleCommand(ctx, query, s.IOOut); handled {
 			if exit {
 				return nil
 			}
@@ -200,25 +220,85 @@ func (s *NewReadlineShell) runOneInteractive(ctx context.Context, query string) 
 	}
 }
 
-// handleSlashCommand processes REPL meta-commands. It returns (handled, exit):
-// handled is true if the input was a meta-command (and should not be executed
-// as SQL); exit is true if the REPL should terminate.
-func handleSlashCommand(query string, w io.Writer) (handled, exit bool) {
-	switch strings.ToLower(query) {
-	case `\q`, "quit", "exit":
+// clearScreen is the ANSI sequence that moves the cursor home and clears the
+// screen (equivalent to Ctrl-L). Written only when stdout is a TTY.
+const clearScreen = "\033[H\033[2J"
+
+// handleCommand processes REPL control commands. It returns (handled, exit):
+// handled is true if the input was a command (and must not be executed as SQL);
+// exit is true if the REPL should terminate.
+//
+// Dispatch rules:
+//   - bare-word "quit"/"exit" (case-insensitive) exit, as convenience aliases;
+//   - any input whose first character is '/' is a slash command (recognized ones
+//     act; unrecognized ones print guidance and return to the prompt);
+//   - everything else is not a command and is left for the SQL engine.
+//
+// The input is expected to be already trimmed (see normalizeQuery), so a leading
+// '/' is the first non-space character of the original line.
+func (s *NewReadlineShell) handleCommand(ctx context.Context, input string, w io.Writer) (handled, exit bool) {
+	switch strings.ToLower(input) {
+	case "quit", "exit":
 		return true, true
-	case `\help`, "?":
-		printHelp(w)
-		return true, false
-	default:
+	}
+
+	if !strings.HasPrefix(input, "/") {
 		return false, false
 	}
+
+	switch strings.ToLower(input) {
+	case "/quit":
+		return true, true
+	case "/help":
+		printHelp(w)
+	case "/version":
+		_, _ = fmt.Fprintf(w, "%s\n%s\n", s.versionString(), s.projectURLString())
+	case "/tables":
+		if err := s.RunQuery(ctx, "SHOW TABLES", w); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %s\n", err)
+		}
+	case "/clear":
+		// Clear the screen only on a TTY; off a TTY emit nothing so piped
+		// output is not polluted with escape codes. History is untouched.
+		if s.IsTTY {
+			_, _ = io.WriteString(w, clearScreen)
+		}
+	case "/history-clear":
+		// Reset the recall history; nil off a TTY where no history exists.
+		if s.clearHistory != nil {
+			s.clearHistory()
+		}
+	default:
+		fmt.Fprintf(os.Stderr, "unknown command %s, try /help\n", input)
+	}
+	return true, false
+}
+
+// versionString returns the build version, defaulting to "dev" when not injected.
+func (s *NewReadlineShell) versionString() string {
+	if s.Version == "" {
+		return "dev"
+	}
+	return s.Version
+}
+
+// projectURLString returns the configured project URL, defaulting to the
+// canonical home when not set.
+func (s *NewReadlineShell) projectURLString() string {
+	if s.ProjectURL == "" {
+		return "https://github.com/ebuildy/kubectl-sql"
+	}
+	return s.ProjectURL
 }
 
 func printHelp(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "Commands:")
-	_, _ = fmt.Fprintln(w, "  \\q, quit, exit   exit the REPL")
-	_, _ = fmt.Fprintln(w, "  \\help, ?         show this help")
+	_, _ = fmt.Fprintln(w, "  /quit          exit the REPL (quit, exit also work)")
+	_, _ = fmt.Fprintln(w, "  /clear         clear the screen")
+	_, _ = fmt.Fprintln(w, "  /history-clear clear the recall history")
+	_, _ = fmt.Fprintln(w, "  /help          show this help")
+	_, _ = fmt.Fprintln(w, "  /version       show version")
+	_, _ = fmt.Fprintln(w, "  /tables        list tables")
 	_, _ = fmt.Fprintln(w, "")
 	_, _ = fmt.Fprintln(w, "Anything else is executed as a SQL query, e.g.:")
 	_, _ = fmt.Fprintln(w, "  SELECT name, namespace FROM pods WHERE status.phase != 'Running'")

@@ -38,7 +38,7 @@ func NewReplCommand(ctx context.Context, config api.Config) (*ReplCommand, error
 // runREPL wires the REPL package to the cobra command, forwarding all flags via
 // a closure over runQueryWithWriter. interactive selects the prompt-driven loop;
 // when false the REPL reads queries from stdin in batch mode.
-func (r *ReplCommand) Run(ctx context.Context, interactive bool) error {
+func (r *ReplCommand) Run(ctx context.Context, interactive bool, version, projectURL string) error {
 
 	runQueryFn := func(ctx context.Context, query string, w io.Writer) error {
 		timeout := r.config.Timeout
@@ -49,10 +49,12 @@ func (r *ReplCommand) Run(ctx context.Context, interactive bool) error {
 
 	// @TODO: arch hexa should be moved to main
 	shellInstance := shellAdapter.NewReadlineShell{
-		RunQuery: runQueryFn,
-		IOIn:     os.Stdin,
-		IOOut:    os.Stdout,
-		IsTTY:    interactive,
+		RunQuery:   runQueryFn,
+		IOIn:       os.Stdin,
+		IOOut:      os.Stdout,
+		IsTTY:      interactive,
+		Version:    version,
+		ProjectURL: projectURL,
 	}
 
 	// Tab completion only matters for the interactive prompt. Build the source

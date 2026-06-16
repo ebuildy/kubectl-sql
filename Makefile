@@ -17,8 +17,10 @@ generate:
 		-in internal/adapter/datasources/k8s/testdata/swagger.json \
 		-out internal/adapter/datasources/k8s/schema_swagger_k8s_standard_resources.go
 
+VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+
 build:
-	go build -o $(BINARY) .
+	go build -ldflags "-X $(MODULE)/cmd.version=$(VERSION)" -o $(BINARY) .
 
 install: build
 	cp $(BINARY) ~/bin/kubectl-sql

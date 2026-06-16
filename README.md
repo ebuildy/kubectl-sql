@@ -69,15 +69,29 @@ Pass a query directly, or run with no query to drop into the interactive REPL:
 $ kubectl-sql
 sql> SELECT name, namespace FROM pods WHERE status->phase != 'Running'
 ... results ...
-sql> \q
+sql> /quit
 ```
 
 At the `sql> ` prompt, type a query and press Enter to run it. Use the up/down
 arrows to recall previous queries, and press **Tab** to autocomplete SQL
-keywords, table names (after `FROM`), and column names of the table in your
-`FROM` clause. `\help` (or `?`) lists commands; `\q`, `quit`, `exit`, or `Ctrl-C`
-leaves the REPL. Queries can be piped in too — they run in batch mode, one per
-line:
+keywords, table names (after `FROM`), column names of the table in your `FROM`
+clause, and slash commands (any word starting with `/`).
+
+REPL slash commands:
+
+| Command | Action |
+|---|---|
+| `/quit` | exit the REPL (`quit`, `exit`, or `Ctrl-C` also work) |
+| `/clear` | clear the screen (history is kept) |
+| `/history-clear` | clear the recall history (screen is kept) |
+| `/help` | list the slash commands |
+| `/version` | print the version and project URL |
+| `/tables` | list tables (same as `SHOW TABLES`) |
+
+> **Breaking change:** the old backslash commands `\q`, `\help`, and `?` have
+> been removed. Use `/quit` and `/help` instead.
+
+Queries can be piped in too — they run in batch mode, one per line:
 
 ```
 echo "SELECT name FROM pods LIMIT 5" | kubectl-sql
@@ -366,7 +380,7 @@ the source of truth for how each feature works.
 | [SQL Engine Port](openspec/specs/sql-engine-port/spec.md) | Defines the hexagonal port/adapter boundary that confines the octosql engine and keeps it swappable. |
 | [SQL Execution](openspec/specs/sql-execution/spec.md) | End-to-end SQL query execution contract: CLI input, SELECT/WHERE/LIMIT semantics, DELETE routing to the mutator adapter, and flag forwarding. |
 | [SQL Mutator Adapter](openspec/specs/sql-mutator-adapter/spec.md) | Defines the `mutator` adapter that owns mutating statements, resolving targets via octosql and deleting through the DataSource port with bounded parallelism. |
-| [SQL REPL](openspec/specs/sql-repl/spec.md) | Defines the interactive REPL: prompt loop, history, batch fallback, and Tab autocomplete for keywords, tables, and columns. |
+| [SQL REPL](openspec/specs/sql-repl/spec.md) | Defines the interactive REPL: prompt loop, slash commands (`/quit`, `/clear`, `/history-clear`, `/help`, `/version`, `/tables`), history, batch fallback, and Tab autocomplete. |
 | [Swagger Schema Provider](openspec/specs/swagger-schema-provider/spec.md) | Embeds a generated Kubernetes OpenAPI snapshot so `spec`/`status` field structure is available without a cluster round trip. |
 | [Watch Mode](openspec/specs/watch-mode/spec.md) | Defines the `--watch`/`-w` flag, which re-executes the query every 5 seconds and reprints the result table until Ctrl-C or `--timeout`. |
 

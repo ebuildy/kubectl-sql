@@ -38,8 +38,17 @@ var sqlKeywords = []string{
 	"TABLES", "TABLE",
 }
 
+// slashCommands are the REPL control commands offered when the word under the
+// cursor begins with '/'. Kept alphabetically sorted to match completion order.
+var slashCommands = []string{"/clear", "/help", "/history-clear", "/quit", "/tables", "/version"}
+
 // wordRe matches the trailing identifier the user is currently typing.
 var wordRe = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*$`)
+
+// slashRe matches a '/'-prefixed command word at the cursor when it starts a
+// token (line start or after whitespace). Group 2 is the slash word itself
+// (letters and hyphens, e.g. "/history-clear").
+var slashRe = regexp.MustCompile(`(^|\s)(/[A-Za-z-]*)$`)
 
 // fromRe extracts the first table after FROM (optionally k8s.-qualified).
 var fromRe = regexp.MustCompile(`(?i)\bfrom\s+(?:k8s\.)?([A-Za-z_][A-Za-z0-9_]*)`)
@@ -102,23 +111,33 @@ func (c *cliCompletionSource) Do(line []rune, pos int) ([][]rune, int) {
 	prefixText := string(line[:pos])
 	fullLine := string(line)
 
+	// Slash-command completion is mutually exclusive with SQL completion: when
+	// the token under the cursor begins with '/', offer only REPL command names
+	// and never SQL keywords/tables/columns/functions.
+	if m := slashRe.FindStringSubmatch(prefixText); m != nil {
+		slashWord := m[2]
+		return suffixCandidates(matchPrefix(slashCommands, strings.ToLower(slashWord)), slashWord)
+	}
+
 	word := wordRe.FindString(prefixText)
-	candidates := c.candidates(prefixText, fullLine, word)
+	return suffixCandidates(c.candidates(prefixText, fullLine, word), word)
+}
+
+// suffixCandidates sorts candidates alphabetically (case-insensitive), caps them
+// at maxSuggestions, and returns the part of each candidate beyond the typed
+// word together with the typed word's length (the readline replacement offset).
+func suffixCandidates(candidates []string, word string) ([][]rune, int) {
 	if len(candidates) == 0 {
 		return nil, len(word)
 	}
-
-	// Order alphabetically (case-insensitive) and cap the number shown.
 	sort.Slice(candidates, func(i, j int) bool {
 		return strings.ToLower(candidates[i]) < strings.ToLower(candidates[j])
 	})
 	if len(candidates) > maxSuggestions {
 		candidates = candidates[:maxSuggestions]
 	}
-
 	out := make([][]rune, 0, len(candidates))
 	for _, cand := range candidates {
-		// Return the part of the candidate beyond what the user already typed.
 		out = append(out, []rune(cand[len(word):]))
 	}
 	return out, len(word)

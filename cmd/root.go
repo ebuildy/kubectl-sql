@@ -79,7 +79,7 @@ Example:
 				return fmt.Errorf("kubectl-sql: create REPL command: %w", err)
 			}
 
-			return replCommand.Run(cmd.Context(), interactive)
+			return replCommand.Run(cmd.Context(), interactive, version, projectURL)
 		}
 		return queryCommand.Run(cmd.Context(), args[0])
 	},

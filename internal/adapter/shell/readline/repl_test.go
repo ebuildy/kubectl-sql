@@ -133,34 +133,155 @@ func TestRunBatch_ContinuesAfterError(t *testing.T) {
 	}
 }
 
-// TestHandleSlashCommand covers quit, help, and pass-through behavior.
-func TestHandleSlashCommand(t *testing.T) {
+// TestHandleCommand_Dispatch covers exit aliases, slash dispatch, and the fact
+// that legacy backslash commands are no longer recognized (they pass through to
+// the SQL engine instead of being handled).
+func TestHandleCommand_Dispatch(t *testing.T) {
 	cases := []struct {
 		input       string
 		wantHandled bool
 		wantExit    bool
 	}{
-		{`\q`, true, true},
+		{"/quit", true, true},
 		{"quit", true, true},
 		{"exit", true, true},
 		{"EXIT", true, true},
-		{`\help`, true, false},
-		{"?", true, false},
+		{"/help", true, false},
+		{"/HELP", true, false},
+		{"/clear", true, false},
+		{"/history-clear", true, false},
+		{"/foo", true, false}, // unknown slash command: handled, no exit, not SQL
+		// Legacy backslash commands are no longer recognized -> not handled
+		// (left for the SQL engine, which reports the error).
+		{`\q`, false, false},
+		{`\help`, false, false},
+		{"?", false, false},
 		{"SELECT name FROM pods", false, false},
 	}
 	for _, tc := range cases {
-		var out strings.Builder
-		handled, exit := handleSlashCommand(tc.input, &out)
+		s := &NewReadlineShell{
+			IOOut:    io.Discard,
+			RunQuery: func(context.Context, string, io.Writer) error { return nil },
+		}
+		handled, exit := s.handleCommand(context.Background(), tc.input, io.Discard)
 		if handled != tc.wantHandled || exit != tc.wantExit {
-			t.Errorf("handleSlashCommand(%q) = (handled=%v, exit=%v), want (handled=%v, exit=%v)",
+			t.Errorf("handleCommand(%q) = (handled=%v, exit=%v), want (handled=%v, exit=%v)",
 				tc.input, handled, exit, tc.wantHandled, tc.wantExit)
 		}
-		if tc.input == `\help` || tc.input == "?" {
-			if !strings.Contains(out.String(), `\q`) || !strings.Contains(out.String(), `\help`) {
-				t.Errorf("help output missing commands: %q", out.String())
-			}
+	}
+}
+
+// TestHandleCommand_Help verifies /help lists the slash commands.
+func TestHandleCommand_Help(t *testing.T) {
+	s := &NewReadlineShell{IOOut: io.Discard}
+	var out strings.Builder
+	handled, exit := s.handleCommand(context.Background(), "/help", &out)
+	if !handled || exit {
+		t.Fatalf("/help = (handled=%v, exit=%v), want (true, false)", handled, exit)
+	}
+	for _, cmd := range []string{"/quit", "/clear", "/history-clear", "/help", "/version", "/tables"} {
+		if !strings.Contains(out.String(), cmd) {
+			t.Errorf("/help output missing %q: %q", cmd, out.String())
 		}
 	}
+}
+
+// TestHandleCommand_HistoryClear verifies /history-clear invokes the wired
+// history reset on a TTY and is a no-op (no panic) off a TTY.
+func TestHandleCommand_HistoryClear(t *testing.T) {
+	t.Run("invokes reset when wired", func(t *testing.T) {
+		var reset int
+		s := &NewReadlineShell{clearHistory: func() { reset++ }}
+		handled, exit := s.handleCommand(context.Background(), "/history-clear", io.Discard)
+		if !handled || exit {
+			t.Fatalf("/history-clear = (handled=%v, exit=%v), want (true, false)", handled, exit)
+		}
+		if reset != 1 {
+			t.Errorf("/history-clear called reset %d times, want 1", reset)
+		}
+	})
+	t.Run("no-op when not wired", func(t *testing.T) {
+		s := &NewReadlineShell{} // clearHistory nil (off a TTY)
+		handled, exit := s.handleCommand(context.Background(), "/history-clear", io.Discard)
+		if !handled || exit {
+			t.Fatalf("/history-clear = (handled=%v, exit=%v), want (true, false)", handled, exit)
+		}
+	})
+}
+
+// TestHandleCommand_Version verifies /version prints the version and project URL,
+// defaulting to "dev" when no version is injected.
+func TestHandleCommand_Version(t *testing.T) {
+	t.Run("default dev", func(t *testing.T) {
+		s := &NewReadlineShell{}
+		var out strings.Builder
+		s.handleCommand(context.Background(), "/version", &out)
+		if !strings.Contains(out.String(), "dev") {
+			t.Errorf("default /version should print 'dev': %q", out.String())
+		}
+		if !strings.Contains(out.String(), "https://github.com/ebuildy/kubectl-sql") {
+			t.Errorf("/version should print the project URL: %q", out.String())
+		}
+	})
+	t.Run("injected version", func(t *testing.T) {
+		s := &NewReadlineShell{Version: "v1.2.3", ProjectURL: "https://example.test/kubectl-sql"}
+		var out strings.Builder
+		s.handleCommand(context.Background(), "/version", &out)
+		if !strings.Contains(out.String(), "v1.2.3") {
+			t.Errorf("/version should print injected version: %q", out.String())
+		}
+		if !strings.Contains(out.String(), "https://example.test/kubectl-sql") {
+			t.Errorf("/version should print configured URL: %q", out.String())
+		}
+	})
+}
+
+// TestHandleCommand_Tables verifies /tables dispatches "SHOW TABLES" through
+// RunQuery so its output is identical to the SQL statement.
+func TestHandleCommand_Tables(t *testing.T) {
+	var gotQuery string
+	s := &NewReadlineShell{
+		RunQuery: func(_ context.Context, query string, w io.Writer) error {
+			gotQuery = query
+			_, _ = io.WriteString(w, "table-listing")
+			return nil
+		},
+	}
+	var out strings.Builder
+	handled, exit := s.handleCommand(context.Background(), "/tables", &out)
+	if !handled || exit {
+		t.Fatalf("/tables = (handled=%v, exit=%v), want (true, false)", handled, exit)
+	}
+	if gotQuery != "SHOW TABLES" {
+		t.Errorf("/tables dispatched %q, want %q", gotQuery, "SHOW TABLES")
+	}
+	if out.String() != "table-listing" {
+		t.Errorf("/tables output = %q, want the SHOW TABLES output", out.String())
+	}
+}
+
+// TestHandleCommand_Clear verifies /clear emits the clear sequence on a TTY and
+// nothing off a TTY.
+func TestHandleCommand_Clear(t *testing.T) {
+	t.Run("tty clears screen", func(t *testing.T) {
+		s := &NewReadlineShell{IsTTY: true}
+		var out strings.Builder
+		s.handleCommand(context.Background(), "/clear", &out)
+		if out.String() != clearScreen {
+			t.Errorf("/clear on TTY = %q, want clear sequence", out.String())
+		}
+	})
+	t.Run("no tty is a no-op", func(t *testing.T) {
+		s := &NewReadlineShell{IsTTY: false}
+		var out strings.Builder
+		handled, exit := s.handleCommand(context.Background(), "/clear", &out)
+		if !handled || exit {
+			t.Fatalf("/clear = (handled=%v, exit=%v), want (true, false)", handled, exit)
+		}
+		if out.String() != "" {
+			t.Errorf("/clear off a TTY should emit nothing, got %q", out.String())
+		}
+	})
 }
 
 // TestNormalizeQuery covers trimming and trailing-semicolon stripping.
