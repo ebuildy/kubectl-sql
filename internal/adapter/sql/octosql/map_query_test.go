@@ -53,7 +53,7 @@ func (mapFakeDS) List(_ context.Context, _ k8sport.Resource, _ k8sport.ListOptio
 
 // TestMapField proves a map field can be accessed via -> and returned as a JSON object.
 func TestMapField(t *testing.T) {
-	eng := New(portsql.Config{Output: "json"}, mapFakeDS{})
+	eng := New(portsql.Config{Output: "json"}, mapFakeDS{}, nil)
 	var buf strings.Builder
 
 	err := eng.Execute(context.Background(),

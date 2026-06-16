@@ -361,6 +361,7 @@ the source of truth for how each feature works.
 | [Logging](openspec/specs/logging/spec.md) | Defines leveled `-v`/`-vv` logging to stderr, shared via context, behind a port/adapter boundary, with timed debug/info traces. |
 | [Output Renderer](openspec/specs/output-renderer/spec.md) | Defines `internal/output.Render`, the TTY-independent renderer that drives execution and writes query results. |
 | [Project Scaffold](openspec/specs/project-scaffold/spec.md) | Baseline structural requirements: Go module setup, CLI entrypoint, flags, package layout, and Makefile targets. |
+| [Query Typo Suggestion](openspec/specs/query-typo-suggestion/spec.md) | Turns a failed query into a high-confidence single-token correction (keyword, table, field, dotted access, or unterminated quote) by string similarity. |
 | [SHOW TABLES](openspec/specs/show-tables/spec.md) | Defines `SHOW TABLES`, which lists all Kubernetes API resource types queryable via `kubectl-sql`. |
 | [SQL Engine Port](openspec/specs/sql-engine-port/spec.md) | Defines the hexagonal port/adapter boundary that confines the octosql engine and keeps it swappable. |
 | [SQL Execution](openspec/specs/sql-execution/spec.md) | End-to-end SQL query execution contract: CLI input, SELECT/WHERE/LIMIT semantics, DELETE routing to the mutator adapter, and flag forwarding. |

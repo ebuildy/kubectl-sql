@@ -4,7 +4,6 @@ import (
 	"context"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -147,7 +146,7 @@ func (c *cliCompletionSource) candidates(prefixText, fullLine, word string) []st
 		if table == "" {
 			return nil
 		}
-		fields := subFieldsAtPath(c.columns(table), strings.Split(chain[1], "->"))
+		fields := schema.SubFieldsAtPath(c.columns(table), strings.Split(chain[1], "->"))
 		return matchPrefix(fieldNames(fields), lowerWord)
 	}
 
@@ -164,35 +163,6 @@ func (c *cliCompletionSource) candidates(prefixText, fullLine, word string) []st
 		out = append(out, matchPrefix(fieldNames(c.columns(table)), lowerWord)...)
 	}
 	return out
-}
-
-// subFieldsAtPath walks fields following path (a chain of -> separated
-// segments, e.g. ["spec", "containers", "0"]) and returns the SubFields at
-// that depth, or nil if any segment cannot be resolved. Numeric segments
-// (array indices) pass through to the same element's SubFields, since
-// inferred list element fields share one SubFields set regardless of index.
-func subFieldsAtPath(fields []schema.Field, path []string) []schema.Field {
-	for _, seg := range path {
-		if _, err := strconv.Atoi(seg); err == nil {
-			// Array index: stay on the current field set (list elements all
-			// share the same SubFields).
-			continue
-		}
-		var next []schema.Field
-		found := false
-		for _, f := range fields {
-			if strings.EqualFold(f.Name, seg) {
-				next = f.SubFields
-				found = true
-				break
-			}
-		}
-		if !found {
-			return nil
-		}
-		fields = next
-	}
-	return fields
 }
 
 // fieldNames extracts the Name of each field.

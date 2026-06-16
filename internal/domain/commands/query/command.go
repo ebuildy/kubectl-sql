@@ -2,6 +2,7 @@ package query
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	k8sAdapter "github.com/ebuildy/kubectl-sql/internal/adapter/datasources/k8s"
+	spellcheckerAdapter "github.com/ebuildy/kubectl-sql/internal/adapter/spellchecker"
 	octosqlAdapter "github.com/ebuildy/kubectl-sql/internal/adapter/sql/octosql"
 	"github.com/ebuildy/kubectl-sql/internal/port/api"
 	k8sPort "github.com/ebuildy/kubectl-sql/internal/port/datasources/k8s"
@@ -110,11 +112,23 @@ func (c *QueryCommand) RunWithWriter(ctx context.Context, query string, w io.Wri
 		NoColor:       c.config.NoColor,
 		DisableBeauty: c.config.DisableBeauty,
 	}
-	eng := octosqlAdapter.New(config, c.k8s)
+	eng := octosqlAdapter.New(config, c.k8s, spellcheckerAdapter.New())
 	execErr := eng.Execute(ctx, sqlPort.Query{
 		SQL: query,
 	}, w)
 	log.Debug("query completed", logger.Duration("elapsed", time.Since(start)))
+
+	// A single mistyped keyword/table/field with a close valid match surfaces as
+	// a SuggestionError. In the REPL we surface it unchanged so the loop can
+	// pre-fill the corrected query into the input line for editing; on the
+	// one-shot path we present the correction and prompt to run it.
+	var se *sqlPort.SuggestionError
+	if errors.As(execErr, &se) {
+		if c.inREPL {
+			return execErr
+		}
+		return c.handleSuggestion(ctx, se, w)
+	}
 	return execErr
 }
 

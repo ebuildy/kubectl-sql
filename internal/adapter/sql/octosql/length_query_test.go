@@ -61,7 +61,7 @@ func (lengthFakeDS) List(_ context.Context, _ k8sport.Resource, _ k8sport.ListOp
 // asserts length() returns the number of labels (struct fields) and the number
 // of volumes (list elements), and that the list column renders as a JSON array.
 func TestLength_CountsNestedStructAndList(t *testing.T) {
-	eng := New(portsql.Config{Output: "json"}, lengthFakeDS{})
+	eng := New(portsql.Config{Output: "json"}, lengthFakeDS{}, nil)
 	var buf strings.Builder
 	err := eng.Execute(context.Background(),
 		portsql.Query{SQL: "SELECT length(metadata->labels) AS nlabels, length(spec->volumes) AS nvolumes, spec->volumes AS volumes FROM pods"},

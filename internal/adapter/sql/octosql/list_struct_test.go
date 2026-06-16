@@ -118,7 +118,7 @@ func (listStructFakeDS) List(_ context.Context, _ k8sport.Resource, _ k8sport.Li
 // 9.4 — SELECT name, spec->containers[0]->name type-checks, executes, projects
 // the first container name.
 func TestQuery_ListElementFieldAccess(t *testing.T) {
-	eng := New(portsql.Config{Output: "json"}, listStructFakeDS{})
+	eng := New(portsql.Config{Output: "json"}, listStructFakeDS{}, nil)
 	var buf strings.Builder
 	err := eng.Execute(context.Background(),
 		portsql.Query{SQL: "SELECT name AS name, spec->containers[0]->name AS c0 FROM pods"},
@@ -134,7 +134,7 @@ func TestQuery_ListElementFieldAccess(t *testing.T) {
 
 // 9.5 — out-of-range index yields NULL, exit 0.
 func TestQuery_ListElementOutOfRange(t *testing.T) {
-	eng := New(portsql.Config{Output: "json"}, listStructFakeDS{})
+	eng := New(portsql.Config{Output: "json"}, listStructFakeDS{}, nil)
 	var buf strings.Builder
 	err := eng.Execute(context.Background(),
 		portsql.Query{SQL: "SELECT name AS name, spec->containers[99]->name AS c FROM pods"},
@@ -150,7 +150,7 @@ func TestQuery_ListElementOutOfRange(t *testing.T) {
 
 // 9.6 — list element field usable in WHERE.
 func TestQuery_ListElementInWhere(t *testing.T) {
-	eng := New(portsql.Config{Output: "json"}, listStructFakeDS{})
+	eng := New(portsql.Config{Output: "json"}, listStructFakeDS{}, nil)
 	var buf strings.Builder
 	err := eng.Execute(context.Background(),
 		portsql.Query{SQL: "SELECT name AS name FROM pods WHERE spec->containers[0]->image = 'redis:7'"},
@@ -166,7 +166,7 @@ func TestQuery_ListElementInWhere(t *testing.T) {
 // 9.3 / 9.7 — JSON output renders List<Struct> as an array of named-key objects
 // (with nested scalar-element command list unchanged as a JSON array).
 func TestQuery_ListStructJSONOutput(t *testing.T) {
-	eng := New(portsql.Config{Output: "json"}, listStructFakeDS{})
+	eng := New(portsql.Config{Output: "json"}, listStructFakeDS{}, nil)
 	var buf strings.Builder
 	err := eng.Execute(context.Background(),
 		portsql.Query{SQL: "SELECT spec->containers AS containers FROM pods"},
@@ -194,7 +194,7 @@ func TestQuery_ListStructJSONOutput(t *testing.T) {
 // Indexing a typed list (spec->containers[0]) yields a single element struct.
 // JSON output must render it as a named-key object, not octosql's positional form.
 func TestQuery_ListElementIndexJSONOutput(t *testing.T) {
-	eng := New(portsql.Config{Output: "json"}, listStructFakeDS{})
+	eng := New(portsql.Config{Output: "json"}, listStructFakeDS{}, nil)
 	var buf strings.Builder
 	err := eng.Execute(context.Background(),
 		portsql.Query{SQL: "SELECT spec->containers[0] AS c0 FROM pods"},

@@ -32,7 +32,7 @@ func (c *QueryCommand) newMutator() sqlPort.Mutator {
 		PageSize:  c.config.PageSize,
 		NoColor:   true,
 	}
-	return mutatorAdapter.New(octosqlAdapter.New(csvCfg, c.k8s), c.k8s)
+	return mutatorAdapter.New(octosqlAdapter.New(csvCfg, c.k8s, nil), c.k8s)
 }
 
 // runDelete drives the DELETE flow: resolve the deletion set, preview it, gate

@@ -166,7 +166,7 @@ func (podsFakeDS) List(_ context.Context, _ k8sport.Resource, _ k8sport.ListOpti
 // "resolved rows missing a 'name' column".
 func TestPlanWithRealOctosqlEngine(t *testing.T) {
 	ds := podsFakeDS{}
-	eng := octosqlAdapter.New(portsql.Config{Output: "csv"}, ds)
+	eng := octosqlAdapter.New(portsql.Config{Output: "csv"}, ds, nil)
 	m := New(eng, ds)
 
 	plan, err := m.Plan(context.Background(), "DELETE FROM pods LIMIT 1")

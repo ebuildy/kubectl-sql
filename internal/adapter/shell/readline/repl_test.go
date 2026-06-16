@@ -2,10 +2,79 @@ package readline
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
+
+	sqlPort "github.com/ebuildy/kubectl-sql/internal/port/sql"
 )
+
+// fakeFiller captures what would be pre-filled into the next readline prompt.
+type fakeFiller struct{ filled string }
+
+func (f *fakeFiller) WriteStdin(b []byte) (int, error) {
+	f.filled += string(b)
+	return len(b), nil
+}
+
+func fieldSuggestionErr() *sqlPort.SuggestionError {
+	return &sqlPort.SuggestionError{
+		Suggestion: sqlPort.Suggestion{
+			Kind:         sqlPort.SuggestionKindField,
+			Typo:         "staus",
+			Suggestion:   "status",
+			CorrectedSQL: "SELECT status FROM pods",
+		},
+		Err: errors.New("octosql: typecheck: unknown variable: 'staus'"),
+	}
+}
+
+// TestHandleInteractiveSuggestion_PrefillsCorrectedQuery verifies the REPL prints
+// the diagnostic and pre-fills the corrected query for editing instead of
+// repeating it in the message or prompting.
+func TestHandleInteractiveSuggestion_PrefillsCorrectedQuery(t *testing.T) {
+	se := fieldSuggestionErr()
+	var f fakeFiller
+	var errOut strings.Builder
+
+	handleInteractiveSuggestion(se, &f, &errOut)
+
+	if f.filled != "SELECT status FROM pods" {
+		t.Errorf("pre-filled input = %q, want the corrected query", f.filled)
+	}
+	if !strings.Contains(errOut.String(), "did you mean status?") {
+		t.Errorf("missing diagnostic hint, got %q", errOut.String())
+	}
+	if strings.Contains(errOut.String(), "SELECT status FROM pods") {
+		t.Errorf("diagnostic should not repeat the corrected query (it is pre-filled), got %q", errOut.String())
+	}
+}
+
+// TestRunBatch_SuggestionContinuesWithoutRunning verifies batch mode prints the
+// suggestion and moves on without auto-running the corrected query (no editable
+// prompt is available off a TTY).
+func TestRunBatch_SuggestionContinuesWithoutRunning(t *testing.T) {
+	var executed []string
+	cfg := NewReadlineShell{
+		IsTTY: false,
+		IOIn:  strings.NewReader("SELECT staus FROM pods\nSELECT name FROM pods\n"),
+		IOOut: io.Discard,
+		RunQuery: func(_ context.Context, query string, _ io.Writer) error {
+			executed = append(executed, query)
+			if query == "SELECT staus FROM pods" {
+				return fieldSuggestionErr()
+			}
+			return nil
+		},
+	}
+	if err := cfg.Run(context.Background()); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if len(executed) != 2 || executed[0] != "SELECT staus FROM pods" || executed[1] != "SELECT name FROM pods" {
+		t.Errorf("expected to continue without running the correction, executed: %v", executed)
+	}
+}
 
 // TestRunBatch_ExecutesEachQuery verifies that batch mode executes every
 // non-empty line and writes output to w.

@@ -3,11 +3,13 @@ module github.com/ebuildy/kubectl-sql
 go 1.26.0
 
 require (
+	github.com/adrg/strutil v0.3.1
 	github.com/chzyer/readline v1.5.1
 	github.com/cube2222/octosql v0.13.0
 	github.com/cucumber/godog v0.15.1
 	github.com/itchyny/gojq v0.12.19
 	github.com/olekukonko/tablewriter v0.0.5
+	github.com/schollz/progressbar/v3 v3.19.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/zap v1.28.0
@@ -69,7 +71,6 @@ require (
 	github.com/prometheus/common v0.67.5 // indirect
 	github.com/prometheus/procfs v0.19.2 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
-	github.com/schollz/progressbar/v3 v3.19.0 // indirect
 	github.com/segmentio/fasthash v1.0.3 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/tidwall/btree v1.3.1 // indirect

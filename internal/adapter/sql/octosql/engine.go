@@ -27,19 +27,22 @@ import (
 
 	k8sport "github.com/ebuildy/kubectl-sql/internal/port/datasources/k8s"
 	"github.com/ebuildy/kubectl-sql/internal/port/logger"
+	"github.com/ebuildy/kubectl-sql/internal/port/spellchecker"
 	portsql "github.com/ebuildy/kubectl-sql/internal/port/sql"
 )
 
 // engine implements the sql.Engine port over octosql.
 type engine struct {
-	ds     k8sport.DataSource
-	env    physical.Environment
-	config portsql.Config
+	ds           k8sport.DataSource
+	env          physical.Environment
+	config       portsql.Config
+	spellchecker spellchecker.SpellChecker
 }
 
 // New builds an octosql-backed SQL engine that sources data through the given
-// k8s DataSource port. The returned value is port-typed.
-func New(config portsql.Config, ds k8sport.DataSource) portsql.Engine {
+// k8s DataSource port. sc, when non-nil, enables single-token typo-correction
+// suggestions on parse/typecheck failures. The returned value is port-typed.
+func New(config portsql.Config, ds k8sport.DataSource, sc spellchecker.SpellChecker) portsql.Engine {
 	db := NewKubernetesDatabase(ds, config.Namespace, config.PageSize)
 
 	baseFunctions := octofunctions.FunctionMap()
@@ -63,7 +66,7 @@ func New(config portsql.Config, ds k8sport.DataSource) portsql.Engine {
 		VariableContext: nil,
 	}
 
-	return &engine{ds: ds, env: env, config: config}
+	return &engine{ds: ds, env: env, config: config, spellchecker: sc}
 }
 
 // Execute runs the query through the full octosql pipeline and writes the
@@ -84,8 +87,12 @@ func (e *engine) Execute(ctx context.Context, q portsql.Query, w io.Writer) erro
 
 	statement, err := sqlparser.Parse(q.SQL)
 	if err != nil {
+		parseErr := fmt.Errorf("octosql: parse query: %w", err)
+		if sug, ok := e.parseSuggestion(q.SQL); ok {
+			return &portsql.SuggestionError{Suggestion: sug, Err: parseErr}
+		}
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
-		return fmt.Errorf("octosql: parse query: %w", err)
+		return parseErr
 	}
 	log.Debug("query parsed")
 
@@ -118,8 +125,12 @@ func (e *engine) Execute(ctx context.Context, q portsql.Query, w io.Writer) erro
 
 	physicalPlan, mapping, err := typecheckNode(ctx, logicalPlan, env, logicalEnv)
 	if err != nil {
+		typecheckErr := fmt.Errorf("octosql: typecheck: %w", err)
+		if sug, ok := e.typecheckSuggestion(ctx, q.SQL, err.Error()); ok {
+			return &portsql.SuggestionError{Suggestion: sug, Err: typecheckErr}
+		}
 		log.Error("typecheck error", logger.Err(err))
-		return fmt.Errorf("octosql: typecheck: %w", err)
+		return typecheckErr
 	}
 
 	log.Debug("query typechecked")

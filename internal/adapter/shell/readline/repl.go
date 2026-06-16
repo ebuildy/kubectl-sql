@@ -11,6 +11,7 @@ package readline
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"github.com/chzyer/readline"
 
 	"github.com/ebuildy/kubectl-sql/internal/port/logger"
+	sqlPort "github.com/ebuildy/kubectl-sql/internal/port/sql"
 
 	shellCompletionPort "github.com/ebuildy/kubectl-sql/internal/port/autocomplete"
 )
@@ -78,6 +80,13 @@ func (s *NewReadlineShell) runBatch(ctx context.Context) error {
 		}
 		logger.FromContext(ctx).Debug("repl executing query", logger.String("query", query))
 		if err := s.RunQuery(ctx, query, s.IOOut); err != nil {
+			// Batch mode cannot pre-fill an editable prompt, so print the full
+			// suggestion (including the corrected query) without running it.
+			var se *sqlPort.SuggestionError
+			if errors.As(err, &se) {
+				fmt.Fprintln(os.Stderr, se.Suggestion.Message())
+				continue
+			}
 			fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		}
 	}
@@ -135,10 +144,33 @@ func (s *NewReadlineShell) runInteractive(ctx context.Context) error {
 		}
 
 		logger.FromContext(ctx).Debug("repl executing query", logger.String("query", query))
-		if err := s.runOneInteractive(ctx, query); err != nil {
+		err := s.runOneInteractive(ctx, query)
+		// A typo with a close valid match: instead of prompting, show the
+		// diagnostic and pre-fill the corrected query into the next prompt so the
+		// user can press Enter to run it or edit it first.
+		var se *sqlPort.SuggestionError
+		if errors.As(err, &se) {
+			handleInteractiveSuggestion(se, rl, os.Stderr)
+			continue
+		}
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		}
 	}
+}
+
+// stdinFiller is the subset of *readline.Instance used to pre-fill the next
+// prompt; abstracted so the suggestion handling can be unit-tested.
+type stdinFiller interface {
+	WriteStdin([]byte) (int, error)
+}
+
+// handleInteractiveSuggestion prints the suggestion diagnostic and pre-fills the
+// corrected query into the next prompt for editing. The corrected query is not
+// run until the user confirms it by pressing Enter.
+func handleInteractiveSuggestion(se *sqlPort.SuggestionError, rl stdinFiller, errOut io.Writer) {
+	_, _ = fmt.Fprintln(errOut, se.Suggestion.Hint())
+	_, _ = rl.WriteStdin([]byte(se.Suggestion.CorrectedSQL))
 }
 
 // runOneInteractive executes a single query with a cancellable per-query

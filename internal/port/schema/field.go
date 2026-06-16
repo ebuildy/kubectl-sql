@@ -3,7 +3,42 @@
 // referenced by both ports and adapters without coupling.
 package schema
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strconv"
+	"strings"
+)
+
+// SubFieldsAtPath walks fields following path (a chain of -> separated segments,
+// e.g. ["spec", "containers", "0"]) and returns the SubFields at that depth, or
+// nil if any segment cannot be resolved. Numeric segments (list indices) stay on
+// the current field set, since inferred list elements share one SubFields set
+// regardless of index. Used by both Tab completion (arrow-chain completion) and
+// the SQL engine's typo-correction (scoping nested field candidates to the
+// parent struct).
+func SubFieldsAtPath(fields []Field, path []string) []Field {
+	for _, seg := range path {
+		if _, err := strconv.Atoi(seg); err == nil {
+			// Array index: stay on the current field set (list elements all
+			// share the same SubFields).
+			continue
+		}
+		var next []Field
+		found := false
+		for _, f := range fields {
+			if strings.EqualFold(f.Name, seg) {
+				next = f.SubFields
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil
+		}
+		fields = next
+	}
+	return fields
+}
 
 // FieldType describes the inferred type of a resource column.
 type FieldType string

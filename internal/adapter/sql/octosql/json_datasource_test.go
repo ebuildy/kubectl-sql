@@ -45,7 +45,7 @@ func TestJSONFile_SelectStar_DefaultPrefix(t *testing.T) {
 		`{"pod":"nginx-2","note":"check logs"}`,
 	)
 
-	eng := New(portsql.Config{Output: "json"}, newFakeDataSource())
+	eng := New(portsql.Config{Output: "json"}, newFakeDataSource(), nil)
 	rows := executeJSON(t, eng, "SELECT * FROM "+path)
 
 	require.Len(t, rows, 2)
@@ -70,7 +70,7 @@ func TestJSONFile_Extensions(t *testing.T) {
 		t.Run(ext, func(t *testing.T) {
 			path := writeJSONLFile(t, dir, "notes."+ext, lines...)
 
-			eng := New(portsql.Config{Output: "json"}, newFakeDataSource())
+			eng := New(portsql.Config{Output: "json"}, newFakeDataSource(), nil)
 			rows := executeJSON(t, eng, "SELECT * FROM "+path+" AS n")
 
 			require.Len(t, rows, 2)
@@ -91,7 +91,7 @@ func TestJSONFile_ColumnSelectionAndWhere(t *testing.T) {
 		`{"pod":"nginx-2","note":"check logs"}`,
 	)
 
-	eng := New(portsql.Config{Output: "json"}, newFakeDataSource())
+	eng := New(portsql.Config{Output: "json"}, newFakeDataSource(), nil)
 	rows := executeJSON(t, eng, "SELECT pod, note FROM "+path+" AS n WHERE pod = 'nginx-1'")
 
 	require.Len(t, rows, 1)
@@ -108,7 +108,7 @@ func TestJSONFile_OrderByLimit(t *testing.T) {
 		`{"pod":"nginx-2","note":"check logs"}`,
 	)
 
-	eng := New(portsql.Config{Output: "json"}, newFakeDataSource())
+	eng := New(portsql.Config{Output: "json"}, newFakeDataSource(), nil)
 	rows := executeJSON(t, eng, "SELECT * FROM "+path+" AS n ORDER BY pod DESC LIMIT 1")
 
 	require.Len(t, rows, 1)
@@ -129,7 +129,7 @@ func TestJSONFile_Join(t *testing.T) {
 		`{"pod":"nginx-2","status":"Pending"}`,
 	)
 
-	eng := New(portsql.Config{Output: "json"}, newFakeDataSource())
+	eng := New(portsql.Config{Output: "json"}, newFakeDataSource(), nil)
 	rows := executeJSON(t, eng,
 		"SELECT n.pod, n.note, s.status FROM "+notesPath+" n JOIN "+statusPath+" s ON n.pod = s.pod")
 
@@ -152,7 +152,7 @@ func TestJSONFile_NonLinesArrayErrors(t *testing.T) {
 	path := filepath.Join(dir, "data.json")
 	require.NoError(t, os.WriteFile(path, []byte("[\n  {\"a\": 1},\n  {\"a\": 2}\n]\n"), 0o644))
 
-	eng := New(portsql.Config{Output: "json"}, newFakeDataSource())
+	eng := New(portsql.Config{Output: "json"}, newFakeDataSource(), nil)
 	var buf strings.Builder
 	err := eng.Execute(context.Background(), portsql.Query{SQL: "SELECT * FROM " + path}, &buf)
 
