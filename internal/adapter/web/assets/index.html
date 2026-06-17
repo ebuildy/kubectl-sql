@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>kubectl-sql</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header>
+    <h1>kubectl-sql</h1>
+    <span class="hint">Ctrl/Cmd+Enter to run · Tab to complete</span>
+  </header>
+
+  <section id="editor-section">
+    <div class="editor-wrap">
+      <pre id="highlight" aria-hidden="true"><code></code></pre>
+      <textarea id="editor" spellcheck="false" autocomplete="off" autocapitalize="off"
+        placeholder="SELECT name, namespace FROM pods WHERE status-&gt;phase != 'Running'"></textarea>
+      <ul id="suggestions" class="suggestions" hidden></ul>
+    </div>
+    <div class="controls">
+      <button id="run">Run</button>
+    </div>
+  </section>
+
+  <section id="results-section">
+    <div id="results"><p class="empty">Run a query to see results.</p></div>
+  </section>
+
+  <script src="/app.js"></script>
+</body>
+</html>

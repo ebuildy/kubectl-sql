@@ -97,6 +97,36 @@ Queries can be piped in too — they run in batch mode, one per line:
 echo "SELECT name FROM pods LIMIT 5" | kubectl-sql
 ```
 
+### Web UI
+
+`--ui` starts a small local web server instead of running a query, giving a
+no-install graphical way to type queries with syntax highlighting and
+autocomplete and read results as an HTML table:
+
+```
+kubectl-sql --ui
+# kubectl-sql UI listening on http://127.0.0.1:8080
+```
+
+Open the printed URL in a browser. The page is fully self-contained (assets are
+embedded in the binary — no CDN, no build step). The editor highlights keywords,
+strings, and the `->` accessor; Tab requests completions and Ctrl/Cmd+Enter (or
+the **Run** button) executes the query.
+
+The server reuses the same cluster configuration as the CLI (`--kubeconfig`,
+`--context`, `--namespace`) and runs queries through the same SQL engine in JSON
+mode. It is **read-only**: `DELETE` and other mutating statements are rejected
+with `403` so the browser cannot trigger destructive operations — use the CLI's
+confirmation flow for those. Press Ctrl-C to shut the server down cleanly.
+
+`--ui-address` changes the bind address (default `127.0.0.1:8080`, loopback
+only). Binding to a non-loopback address exposes the query API on the network
+and prints a warning:
+
+```
+kubectl-sql --ui --ui-address 0.0.0.0:9090
+```
+
 ### Logging
 
 By default only errors are logged. Increase verbosity with `-v` (info) or `-vv`
@@ -113,6 +143,8 @@ kubectl-sql -vv --output json "SELECT name FROM pods" 2>debug.log | jq .
 |------|-------|---------|-------------|
 | `--output` | `-o` | `table` | Output format: `table`, `json`, `csv` |
 | `--repl` | `-i` | `false` | Open the interactive SQL REPL (default when no query is given) |
+| `--ui` | | `false` | Start a local web UI instead of running a query |
+| `--ui-address` | | `127.0.0.1:8080` | `host:port` the web UI binds to (loopback by default) |
 | `--watch` | `-w` | `false` | Re-run the query every 5s, refreshing the table |
 | `--verbose` | `-v` | `error` | Increase log verbosity: `-v`=info, `-vv`=debug. Logs go to stderr |
 | `--namespace` | `-n` | all namespaces | Restrict query to a single namespace |
@@ -383,6 +415,9 @@ the source of truth for how each feature works.
 | [SQL REPL](openspec/specs/sql-repl/spec.md) | Defines the interactive REPL: prompt loop, slash commands (`/quit`, `/clear`, `/history-clear`, `/help`, `/version`, `/tables`), history, batch fallback, and Tab autocomplete. |
 | [Swagger Schema Provider](openspec/specs/swagger-schema-provider/spec.md) | Embeds a generated Kubernetes OpenAPI snapshot so `spec`/`status` field structure is available without a cluster round trip. |
 | [Watch Mode](openspec/specs/watch-mode/spec.md) | Defines the `--watch`/`-w` flag, which re-executes the query every 5 seconds and reprints the result table until Ctrl-C or `--timeout`. |
+| [Web UI API](openspec/specs/web-ui-api/spec.md) | Defines the JSON API behind the web UI: `POST /api/query` (run SQL, return columns/rows or structured errors) and `GET /api/complete`, with mutating statements rejected. |
+| [Web UI Command](openspec/specs/web-ui-command/spec.md) | Defines the `--ui`/`--ui-address` flags and the local web server lifecycle: startup banner, browser launch, query pre-load, config reuse, and graceful shutdown. |
+| [Web UI Page](openspec/specs/web-ui-page/spec.md) | Defines the embedded single-page UI: a framework-free, syntax-highlighted SQL editor with autocomplete and an HTML results table with colored-YAML cells and resizable columns. |
 
 ## Development
 

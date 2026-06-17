@@ -18,6 +18,14 @@ import (
 // isDeleteStatement reports whether query is a DELETE statement (its first
 // token is "delete", case-insensitive).
 func isDeleteStatement(query string) bool {
+	return IsDeleteStatement(query)
+}
+
+// IsDeleteStatement reports whether query is a DELETE statement (its first
+// token is "delete", case-insensitive). It is exported so other entry points
+// (e.g. the web UI's mutation guard) can reuse the same classifier rather than
+// duplicating it.
+func IsDeleteStatement(query string) bool {
 	fields := strings.Fields(strings.TrimSpace(query))
 	return len(fields) > 0 && strings.EqualFold(fields[0], "delete")
 }

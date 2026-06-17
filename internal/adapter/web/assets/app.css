@@ -1,0 +1,199 @@
+:root {
+  --bg: #1e1e2e;
+  --panel: #252537;
+  --text: #cdd6f4;
+  --muted: #7f849c;
+  --keyword: #89b4fa;
+  --string: #a6e3a1;
+  --arrow: #f9e2af;
+  --border: #45475a;
+  --accent: #89b4fa;
+  --error: #f38ba8;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+header h1 { margin: 0; font-size: 1.1rem; }
+header .hint { color: var(--muted); font-size: 0.8rem; }
+
+/* Full-width layout: vertical spacing only, no left/right margin or padding. */
+section { padding: 0.75rem 0; }
+
+.editor-wrap {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: visible;
+}
+
+/* The textarea sits transparently over the highlighted <pre>. Both must share
+   identical metrics so the caret aligns with the colored text underneath. */
+#highlight, #editor {
+  margin: 0;
+  padding: 0.75rem;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 14px;
+  line-height: 1.5;
+  tab-size: 2;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border: 0;
+}
+
+#highlight {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  color: var(--text);
+  background: var(--panel);
+  border-radius: 6px;
+}
+
+#editor {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-height: 6rem;
+  resize: vertical;
+  color: transparent;
+  background: transparent;
+  caret-color: var(--text);
+  outline: none;
+}
+
+.tok-keyword { color: var(--keyword); font-weight: 600; }
+.tok-string { color: var(--string); }
+.tok-arrow { color: var(--arrow); }
+
+.suggestions {
+  position: absolute;
+  z-index: 10;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  max-height: 12rem;
+  overflow-y: auto;
+  min-width: 12rem;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+.suggestions li {
+  padding: 0.3rem 0.6rem;
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.suggestions li.active,
+.suggestions li:hover { background: var(--accent); color: var(--bg); }
+
+.controls { margin-top: 0.6rem; }
+
+button#run {
+  padding: 0.45rem 1.1rem;
+  font-size: 0.9rem;
+  color: var(--bg);
+  background: var(--accent);
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+button#run:disabled { opacity: 0.6; cursor: default; }
+
+#results-section { border-top: 1px solid var(--border); }
+
+#results .empty, #results .error { color: var(--muted); }
+#results .error { color: var(--error); white-space: pre-wrap; }
+
+#results .suggestion {
+  margin-top: 0.5rem;
+  color: var(--arrow);
+}
+#results .suggestion button {
+  margin-left: 0.5rem;
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0.15rem 0.5rem;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+  table-layout: fixed;
+}
+
+th, td {
+  border: 1px solid var(--border);
+  padding: 0.35rem 0.6rem;
+  text-align: left;
+  vertical-align: top;
+  font-family: ui-monospace, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: hidden;
+}
+
+th {
+  background: var(--panel);
+  position: sticky;
+  top: 0;
+  /* Anchor the absolutely-positioned resize grip and leave room for it. */
+  padding-right: 12px;
+}
+
+.th-label { display: inline-block; }
+
+/* Drag handle on the right edge of each header cell. */
+.col-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+}
+
+.col-resizer:hover { background: var(--accent); }
+
+/* While dragging, keep the resize cursor and suppress text selection. */
+body.col-resizing { cursor: col-resize; user-select: none; }
+body.col-resizing * { user-select: none; }
+
+/* Composite cells rendered as colored YAML. */
+.yaml-cell {
+  margin: 0;
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre;
+}
+
+.yaml-key { color: var(--keyword); font-weight: 600; }
+.yaml-string { color: var(--string); }
+.yaml-num { color: var(--arrow); }
+.yaml-bool { color: var(--arrow); }
+.yaml-null { color: var(--muted); font-style: italic; }

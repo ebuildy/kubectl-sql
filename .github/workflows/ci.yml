@@ -19,6 +19,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Generate web assets
+        run: make web-assets
       - uses: golangci/golangci-lint-action@v9
 
   test:
@@ -30,6 +32,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Generate web assets
+        run: make web-assets
       - run: go test ./... -race -count=1
 
   build:
@@ -42,6 +46,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Generate web assets
+        run: make web-assets
       - run: go build -v -o bin/kubectl-sql .
       - uses: actions/upload-artifact@v4
         with:

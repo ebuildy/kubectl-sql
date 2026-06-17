@@ -19,6 +19,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Generate web assets
+        run: make web-assets
       - uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
