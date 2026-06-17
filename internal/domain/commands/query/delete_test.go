@@ -66,11 +66,7 @@ func newDeleteCmd(t *testing.T, mut sqlPort.Mutator, cfg api.Config, stdinTTY bo
 	t.Helper()
 	var buf strings.Builder
 	cfg.Out = &buf
-	cmd, err := NewQueryCommandWithDataSource(cfg, fakeDataSource{})
-	if err != nil {
-		t.Fatalf("NewQueryCommandWithDataSource: %v", err)
-	}
-	cmd.mut = mut
+	cmd := NewQueryCommand(cfg, fakeDataSource{}, nil, mut, false)
 	cmd.stdinIsTTY = stdinTTY
 	cmd.in = strings.NewReader(in)
 	return cmd, &buf
@@ -192,11 +188,7 @@ func TestRunDelete_WatchIsRejected(t *testing.T) {
 	plan := twoPodPlan()
 	mut := &fakeMutator{plan: plan, result: allDeleted(plan)}
 	var buf strings.Builder
-	cmd, err := NewQueryCommandWithDataSource(api.Config{Watch: true, Out: &buf}, fakeDataSource{})
-	if err != nil {
-		t.Fatalf("NewQueryCommandWithDataSource: %v", err)
-	}
-	cmd.mut = mut
+	cmd := NewQueryCommand(api.Config{Watch: true, Out: &buf}, fakeDataSource{}, nil, mut, false)
 
 	if err := cmd.Run(context.Background(), "DELETE pods WHERE x = 1"); err == nil {
 		t.Fatal("expected DELETE + --watch to be rejected")

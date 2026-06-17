@@ -2,69 +2,56 @@ package repl
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"os"
 
-	k8sAdapter "github.com/ebuildy/kubectl-sql/internal/adapter/datasources/k8s"
-	shellCompletionAdapter "github.com/ebuildy/kubectl-sql/internal/adapter/shell/completion"
-	shellAdapter "github.com/ebuildy/kubectl-sql/internal/adapter/shell/readline"
-	octosqlAdapter "github.com/ebuildy/kubectl-sql/internal/adapter/sql/octosql"
 	commandQuery "github.com/ebuildy/kubectl-sql/internal/domain/commands/query"
 	"github.com/ebuildy/kubectl-sql/internal/port/api"
-	dataSourcePort "github.com/ebuildy/kubectl-sql/internal/port/datasources/k8s"
+	autocompletePort "github.com/ebuildy/kubectl-sql/internal/port/autocomplete"
+	shellPort "github.com/ebuildy/kubectl-sql/internal/port/shell"
 )
 
+// ReplCommand drives the interactive/batch SQL shell. It depends only on ports:
+// the query command (a domain use case), the completion source, and the shell
+// factory. The composition root (internal/app) builds the concrete adapters and
+// injects them here.
 type ReplCommand struct {
 	config       api.Config
 	queryCommand *commandQuery.QueryCommand
-	dataSource   dataSourcePort.DataSource
+	completion   autocompletePort.ShellCompletionRunner
+	shells       shellPort.Factory
 }
 
-func NewReplCommand(ctx context.Context, config api.Config) (*ReplCommand, error) {
-	ds, err := k8sAdapter.New(ctx, config.Kubeconfig, config.KubeContext, config.Namespace)
-	if err != nil {
-		return nil, fmt.Errorf("kubectl-sql: connect to cluster: %w", err)
-	}
-
-	queryCommand, err := commandQuery.NewQueryCommandWithDataSource(config, ds)
-	if err != nil {
-		return nil, err
-	}
-
-	return &ReplCommand{config: config, queryCommand: queryCommand, dataSource: ds}, nil
+// NewReplCommand builds a ReplCommand from injected ports. config supplies the
+// per-query timeout; queryCommand executes queries; completion (when non-nil)
+// powers Tab autocomplete; shells builds the shell session at Run time.
+func NewReplCommand(config api.Config, queryCommand *commandQuery.QueryCommand, completion autocompletePort.ShellCompletionRunner, shells shellPort.Factory) *ReplCommand {
+	return &ReplCommand{config: config, queryCommand: queryCommand, completion: completion, shells: shells}
 }
 
-// runREPL wires the REPL package to the cobra command, forwarding all flags via
-// a closure over runQueryWithWriter. interactive selects the prompt-driven loop;
-// when false the REPL reads queries from stdin in batch mode.
+// Run builds a shell session and drives it. interactive selects the
+// prompt-driven loop; when false the shell reads queries from stdin in batch
+// mode. Completion is attached only in interactive mode.
 func (r *ReplCommand) Run(ctx context.Context, interactive bool, version, projectURL string) error {
-
 	runQueryFn := func(ctx context.Context, query string, w io.Writer) error {
-		timeout := r.config.Timeout
-		queryCtx, cancel := context.WithTimeout(ctx, timeout)
+		queryCtx, cancel := context.WithTimeout(ctx, r.config.Timeout)
 		defer cancel()
 		return r.queryCommand.RunWithWriter(queryCtx, query, w)
 	}
 
-	// @TODO: arch hexa should be moved to main
-	shellInstance := shellAdapter.NewReadlineShell{
-		RunQuery:   runQueryFn,
-		IOIn:       os.Stdin,
-		IOOut:      os.Stdout,
-		IsTTY:      interactive,
-		Version:    version,
-		ProjectURL: projectURL,
+	spec := shellPort.Spec{
+		RunQuery:    runQueryFn,
+		In:          os.Stdin,
+		Out:         os.Stdout,
+		Interactive: interactive,
+		Version:     version,
+		ProjectURL:  projectURL,
 	}
 
-	// Tab completion only matters for the interactive prompt. Build the source
-	// best-effort: if the cluster is unreachable, completion is simply disabled
-	// rather than aborting the REPL.
+	// Tab completion only matters for the interactive prompt.
 	if interactive {
-		if src := shellCompletionAdapter.NewShellCompletion(ctx, r.dataSource, octosqlAdapter.FunctionNames()); src != nil {
-			shellInstance.Completion = src
-		}
+		spec.Completion = r.completion
 	}
 
-	return shellInstance.Run(ctx)
+	return r.shells.New(spec).Run(ctx)
 }

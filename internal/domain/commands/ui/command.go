@@ -18,12 +18,6 @@ import (
 	"syscall"
 	"time"
 
-	k8sAdapter "github.com/ebuildy/kubectl-sql/internal/adapter/datasources/k8s"
-	shellCompletionAdapter "github.com/ebuildy/kubectl-sql/internal/adapter/shell/completion"
-	spellcheckerAdapter "github.com/ebuildy/kubectl-sql/internal/adapter/spellchecker"
-	octosqlAdapter "github.com/ebuildy/kubectl-sql/internal/adapter/sql/octosql"
-	webAdapter "github.com/ebuildy/kubectl-sql/internal/adapter/web"
-	commandQuery "github.com/ebuildy/kubectl-sql/internal/domain/commands/query"
 	"github.com/ebuildy/kubectl-sql/internal/port/api"
 	autocompletePort "github.com/ebuildy/kubectl-sql/internal/port/autocomplete"
 	k8sPort "github.com/ebuildy/kubectl-sql/internal/port/datasources/k8s"
@@ -32,29 +26,29 @@ import (
 )
 
 // UICommand starts a local web server backed by the same cluster wiring as the
-// CLI. It implements the web driving ports (QueryRunner, Completer).
+// CLI. It implements the web driving ports (QueryRunner, Completer). All
+// adapters are injected by the composition root (internal/app); the server is
+// set via SetServer once it has been built around this command.
 type UICommand struct {
 	config     api.Config
 	dataSource k8sPort.DataSource
+	engines    sqlPort.EngineFactory
 	completion autocompletePort.ShellCompletionRunner
 	addr       string
+	server     webPort.Server
 }
 
-// NewUICommand builds the data source from the CLI config and assembles the
-// completion source. A cluster-connection failure is returned as a non-zero
-// ExitError so no server is started.
-func NewUICommand(ctx context.Context, config api.Config, addr string) (*UICommand, error) {
-	ds, err := k8sAdapter.New(ctx, config.Kubeconfig, config.KubeContext, config.Namespace)
-	if err != nil {
-		return nil, api.ExitError{Code: 2, Err: fmt.Errorf("kubectl-sql: connect to cluster: %w", err)}
-	}
-
-	// Completion is best-effort; if it cannot be built, the editor simply offers
-	// no candidates rather than failing the whole server.
-	completion := shellCompletionAdapter.NewShellCompletion(ctx, ds, octosqlAdapter.FunctionNames())
-
-	return &UICommand{config: config, dataSource: ds, completion: completion, addr: addr}, nil
+// NewUICommand builds a UICommand from injected ports. The composition root
+// wires the DataSource, EngineFactory, and completion source, then constructs
+// the web server around this command and injects it via SetServer.
+func NewUICommand(config api.Config, ds k8sPort.DataSource, engines sqlPort.EngineFactory, completion autocompletePort.ShellCompletionRunner, addr string) *UICommand {
+	return &UICommand{config: config, dataSource: ds, engines: engines, completion: completion, addr: addr}
 }
+
+// SetServer injects the web server. The composition root calls it after building
+// the server with this command as the query/completion backend (a two-phase
+// construction, since the server needs this command and vice versa).
+func (c *UICommand) SetServer(s webPort.Server) { c.server = s }
 
 // RunJSON implements webPort.QueryRunner. It runs the query through the octosql
 // engine in JSON output mode and re-shapes the rendered output into a
@@ -67,7 +61,7 @@ func (c *UICommand) RunJSON(ctx context.Context, sql string) (webPort.QueryResul
 		PageSize:  c.config.PageSize,
 		NoColor:   true,
 	}
-	eng := octosqlAdapter.New(cfg, c.dataSource, spellcheckerAdapter.New())
+	eng := c.engines.New(cfg)
 
 	var buf bytes.Buffer
 	if err := eng.Execute(ctx, sqlPort.Query{SQL: sql}, &buf); err != nil {
@@ -147,7 +141,7 @@ func (c *UICommand) Complete(line string, pos int) []string {
 // the page via the ?sql= query string so the editor opens pre-filled. A bind
 // failure is returned as a non-zero ExitError.
 func (c *UICommand) Run(ctx context.Context, initialQuery string) error {
-	srv := webAdapter.NewServer(c, c, c.addr, commandQuery.IsDeleteStatement)
+	srv := c.server
 
 	ln, err := srv.Listen()
 	if err != nil {

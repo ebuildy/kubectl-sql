@@ -98,6 +98,15 @@ type Engine interface {
 	Execute(ctx context.Context, q Query, w io.Writer) error
 }
 
+// EngineFactory builds an Engine configured for a given Config. The SQL engine
+// is created per call because the output mode varies (the user's --output, the
+// web UI's "json", the mutator's "csv"); a factory lets a consumer keep that
+// Config policy while obtaining an Engine without importing any engine library.
+// The concrete factory lives behind the adapter (internal/adapter/sql/octosql).
+type EngineFactory interface {
+	New(cfg Config) Engine
+}
+
 // Config holds configuration options for the SQL engine.
 type Config struct {
 	Output        string // "table" | "json" | "csv"

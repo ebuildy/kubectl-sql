@@ -7,8 +7,6 @@ import (
 	"os"
 	"strings"
 
-	mutatorAdapter "github.com/ebuildy/kubectl-sql/internal/adapter/sql/mutator"
-	octosqlAdapter "github.com/ebuildy/kubectl-sql/internal/adapter/sql/octosql"
 	"github.com/ebuildy/kubectl-sql/internal/port/api"
 	sqlPort "github.com/ebuildy/kubectl-sql/internal/port/sql"
 	"github.com/olekukonko/tablewriter"
@@ -30,27 +28,12 @@ func IsDeleteStatement(query string) bool {
 	return len(fields) > 0 && strings.EqualFold(fields[0], "delete")
 }
 
-// newMutator builds the mutator adapter wired with a CSV-rendering SELECT
-// engine (so the resolved deletion set parses robustly regardless of the user's
-// --output) and the command's DataSource.
-func (c *QueryCommand) newMutator() sqlPort.Mutator {
-	csvCfg := sqlPort.Config{
-		Output:    "csv",
-		Namespace: c.config.Namespace,
-		PageSize:  c.config.PageSize,
-		NoColor:   true,
-	}
-	return mutatorAdapter.New(octosqlAdapter.New(csvCfg, c.k8s, nil), c.k8s)
-}
-
 // runDelete drives the DELETE flow: resolve the deletion set, preview it, gate
 // on confirmation (unless --yes / --dry-run), then delete with a progress bar
-// (outside the REPL) and print a per-object result summary.
+// (outside the REPL) and print a per-object result summary. The mutator is
+// injected at construction by the composition root.
 func (c *QueryCommand) runDelete(ctx context.Context, query string, w io.Writer) error {
 	mut := c.mut
-	if mut == nil {
-		mut = c.newMutator()
-	}
 
 	plan, err := mut.Plan(ctx, query)
 	if err != nil {

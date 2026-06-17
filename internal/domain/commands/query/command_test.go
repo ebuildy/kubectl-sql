@@ -50,10 +50,7 @@ func TestRunDescribeTable_SchemaColumn(t *testing.T) {
 	}
 
 	var buf strings.Builder
-	cmd, err := NewQueryCommandWithDataSource(api.Config{Out: &buf}, fakeDataSource{fields: fields})
-	if err != nil {
-		t.Fatalf("NewQueryCommandWithDataSource: %v", err)
-	}
+	cmd := NewQueryCommand(api.Config{Out: &buf}, fakeDataSource{fields: fields}, nil, nil, false)
 
 	if err := cmd.RunWithWriter(context.Background(), "DESCRIBE TABLE pods", &buf); err != nil {
 		t.Fatalf("RunWithWriter: %v", err)
@@ -158,10 +155,7 @@ func TestRunDescribeTable_FieldOrder(t *testing.T) {
 	}
 
 	var buf strings.Builder
-	cmd, err := NewQueryCommandWithDataSource(api.Config{Out: &buf}, fakeDataSource{fields: fields})
-	if err != nil {
-		t.Fatalf("NewQueryCommandWithDataSource: %v", err)
-	}
+	cmd := NewQueryCommand(api.Config{Out: &buf}, fakeDataSource{fields: fields}, nil, nil, false)
 	if err := cmd.RunWithWriter(context.Background(), "DESCRIBE TABLE pods", &buf); err != nil {
 		t.Fatalf("RunWithWriter: %v", err)
 	}

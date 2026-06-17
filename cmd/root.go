@@ -10,9 +10,7 @@ import (
 	"time"
 
 	zaplog "github.com/ebuildy/kubectl-sql/internal/adapter/logger/zap"
-	commandQuery "github.com/ebuildy/kubectl-sql/internal/domain/commands/query"
-	commandRepl "github.com/ebuildy/kubectl-sql/internal/domain/commands/repl"
-	commandUI "github.com/ebuildy/kubectl-sql/internal/domain/commands/ui"
+	"github.com/ebuildy/kubectl-sql/internal/app"
 	"github.com/ebuildy/kubectl-sql/internal/port/api"
 	"github.com/ebuildy/kubectl-sql/internal/port/logger"
 	"github.com/ebuildy/kubectl-sql/internal/utils"
@@ -77,7 +75,7 @@ Example:
 			}
 			warnIfNonLoopback(uiAddress)
 
-			uiCommand, err := commandUI.NewUICommand(cmd.Context(), config, uiAddress)
+			uiCommand, err := app.NewUICommand(cmd.Context(), config, uiAddress)
 			if err != nil {
 				return err
 			}
@@ -89,7 +87,7 @@ Example:
 			return uiCommand.Run(cmd.Context(), initialQuery)
 		}
 
-		queryCommand, err := commandQuery.NewQueryCommand(cmd.Context(), config)
+		queryCommand, err := app.NewQueryCommand(cmd.Context(), config)
 		if err != nil {
 			return fmt.Errorf("kubectl-sql: create query command: %w", err)
 		}
@@ -100,7 +98,7 @@ Example:
 			// queries line-by-line in batch mode.
 			interactive := replFlag || utils.StdinIsTTY()
 
-			replCommand, err := commandRepl.NewReplCommand(cmd.Context(), config)
+			replCommand, err := app.NewReplCommand(cmd.Context(), config)
 			if err != nil {
 				return fmt.Errorf("kubectl-sql: create REPL command: %w", err)
 			}

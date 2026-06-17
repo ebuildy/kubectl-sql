@@ -12,9 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	k8sAdapter "github.com/ebuildy/kubectl-sql/internal/adapter/datasources/k8s"
-	spellcheckerAdapter "github.com/ebuildy/kubectl-sql/internal/adapter/spellchecker"
-	octosqlAdapter "github.com/ebuildy/kubectl-sql/internal/adapter/sql/octosql"
 	"github.com/ebuildy/kubectl-sql/internal/port/api"
 	k8sPort "github.com/ebuildy/kubectl-sql/internal/port/datasources/k8s"
 	"github.com/ebuildy/kubectl-sql/internal/port/logger"
@@ -29,6 +26,9 @@ import (
 type QueryCommand struct {
 	config api.Config
 	k8s    k8sPort.DataSource
+	// engines builds the SQL engine per call, with the Config this command
+	// chooses for the run (output mode varies by --output).
+	engines sqlPort.EngineFactory
 	// inREPL is true when the command runs inside the interactive REPL. It
 	// suppresses the DELETE progress bar (whose redraws would fight the line
 	// editor) and selects the REPL input reader for the confirmation prompt.
@@ -39,25 +39,25 @@ type QueryCommand struct {
 	// stdinIsTTY reports whether stdin is an interactive terminal, deciding
 	// whether DELETE may prompt for confirmation.
 	stdinIsTTY bool
-	// mut, when non-nil, overrides the default mutator built by newMutator.
-	// Production leaves it nil; tests inject a fake.
+	// mut is the mutator the DELETE path uses, injected by the composition root
+	// (tests inject a fake).
 	mut sqlPort.Mutator
 }
 
-// NewQueryCommand builds a QueryCommand from CLI flags. It is the single wiring
-func NewQueryCommand(ctx context.Context, config api.Config) (*QueryCommand, error) {
-	ds, err := k8sAdapter.New(ctx, config.Kubeconfig, config.KubeContext, config.Namespace)
-	if err != nil {
-		return nil, fmt.Errorf("kubectl-sql: connect to cluster: %w", err)
+// NewQueryCommand builds a QueryCommand from injected ports. The composition
+// root (internal/app) wires the DataSource, EngineFactory, and Mutator and sets
+// inREPL (true for the REPL path, which suppresses the DELETE progress bar and
+// reads confirmation from the REPL input).
+func NewQueryCommand(config api.Config, ds k8sPort.DataSource, engines sqlPort.EngineFactory, mut sqlPort.Mutator, inREPL bool) *QueryCommand {
+	return &QueryCommand{
+		config:     config,
+		k8s:        ds,
+		engines:    engines,
+		mut:        mut,
+		inREPL:     inREPL,
+		in:         os.Stdin,
+		stdinIsTTY: utils.StdinIsTTY(),
 	}
-
-	return &QueryCommand{config: config, k8s: ds, in: os.Stdin, stdinIsTTY: utils.StdinIsTTY()}, nil
-}
-
-// NewQueryCommandWithDataSource builds a QueryCommand from an already-wired
-// DataSource. It is the REPL path, so inREPL is set.
-func NewQueryCommandWithDataSource(config api.Config, k8s k8sPort.DataSource) (*QueryCommand, error) {
-	return &QueryCommand{config: config, k8s: k8s, inREPL: true, in: os.Stdin, stdinIsTTY: utils.StdinIsTTY()}, nil
 }
 
 func (c *QueryCommand) Run(ctx context.Context, query string) error {
@@ -112,7 +112,7 @@ func (c *QueryCommand) RunWithWriter(ctx context.Context, query string, w io.Wri
 		NoColor:       c.config.NoColor,
 		DisableBeauty: c.config.DisableBeauty,
 	}
-	eng := octosqlAdapter.New(config, c.k8s, spellcheckerAdapter.New())
+	eng := c.engines.New(config)
 	execErr := eng.Execute(ctx, sqlPort.Query{
 		SQL: query,
 	}, w)

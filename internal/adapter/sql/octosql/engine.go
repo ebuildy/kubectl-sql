@@ -69,6 +69,25 @@ func New(config portsql.Config, ds k8sport.DataSource, sc spellchecker.SpellChec
 	return &engine{ds: ds, env: env, config: config, spellchecker: sc}
 }
 
+// factory is an octosql-backed sql.EngineFactory. It closes over the injected
+// DataSource and SpellChecker so each New(cfg) call builds an engine configured
+// for that Config without the consumer importing this package.
+type factory struct {
+	ds k8sport.DataSource
+	sc spellchecker.SpellChecker
+}
+
+// NewFactory returns a sql.EngineFactory whose New(cfg) builds an octosql-backed
+// engine over ds (with sc enabling typo-correction suggestions when non-nil).
+func NewFactory(ds k8sport.DataSource, sc spellchecker.SpellChecker) portsql.EngineFactory {
+	return factory{ds: ds, sc: sc}
+}
+
+// New builds an engine for cfg, delegating to the package's New constructor.
+func (f factory) New(cfg portsql.Config) portsql.Engine {
+	return New(cfg, f.ds, f.sc)
+}
+
 // Execute runs the query through the full octosql pipeline and writes the
 // rendered result to w.
 func (e *engine) Execute(ctx context.Context, q portsql.Query, w io.Writer) error {

@@ -36,21 +36,8 @@ kubectl-sql/
 |   └── octosql/                 ← octosql lib code source
 │
 ├── internal/
-│   ├── parser/                  ← SQL → AST (SELECT, FROM, WHERE, ORDER, LIMIT)
-│   │   ├── lexer.go
-│   │   ├── parser.go
-│   │   └── ast.go
-│   ├── planner/                 ← AST → execution plan (resource kind, filters)
-│   │   └── planner.go
-│   ├── executor/                ← plan → k8s API calls → result rows
-│   │   ├── executor.go
-│   │   └── resolver.go          ← JSON path field resolution on unstructured objects
-│   ├── k8s/                     ← Kubernetes client bootstrap (kubeconfig, contexts)
-│   │   └── client.go
-│   ├── output/                  ← result rendering: table, json, yaml, csv
-│   │   └── renderer.go
-│   └── debug/                   ← error enrichment, log helpers
-│       └── enricher.go
+│   ├── port/                   ← Hexagonal interfaces definitions
+│   ├── adapter/                ← Hexagonal ports implementations
 │
 ├── pkg/
 │   └── sqlschema/               ← public: well-known field aliases, type hints
@@ -147,6 +134,7 @@ behavioral deltas back into the relevant spec file here.
 - Exported types: full descriptive names (`SQLQuery`, `ExecutionPlan`, `RowSet`)
 - Internal helpers: unexported, verb-first (`resolveField`, `buildFilter`)
 - Test files: `<file>_test.go` in the same package (white-box) or `_test` package (black-box)
+- Import of a port package must be suffixed by Port (ex: k8sPort "github.com/ebuildy/kubectl-sql/internal/port/datasources/k8s")
 
 ### SQL parser
 
@@ -200,14 +188,14 @@ make lint                   # golangci-lint run ./...
 # Unit tests
 make test                   # go test ./... -race -count=1
 
-# Integration tests (requires a running cluster or envtest)
-make test-integration       # uses KUBECONFIG from environment
+# Integration tests
+make e2e e2e-run-fake
 
 # Coverage
 make coverage               # opens HTML coverage report
 ```
 
-Always call `make lint build` after edit go code.
+Always call `make lint build test e2e e2e-run-fake` after edit go code.
 
 ### Testing rules
 
@@ -281,9 +269,6 @@ SELECT * FROM pods WHERE ANNOTATION 'team' = 'platform'
 -- Local JSON Lines file sources (.json, .jsonl, .ndjson)
 SELECT * FROM notes.json
 SELECT * FROM notes.jsonl
-
--- JOIN two JSON Lines files on a shared key
-SELECT n.pod, n.note, s.status FROM notes.json n JOIN status.json s ON n.pod = s.pod
 ```
 
 ---
@@ -354,9 +339,6 @@ kubectl sql --explain "SELECT name FROM pods WHERE status->phase = 'Pending'"
 
 # Query a local JSON Lines file
 kubectl sql "SELECT * FROM notes.json"
-
-# Join two local JSON Lines files on a shared key
-kubectl sql "SELECT n.pod, n.note, s.status FROM notes.json n JOIN status.json s ON n.pod = s.pod"
 ```
 
 ---

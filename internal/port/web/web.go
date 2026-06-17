@@ -5,7 +5,10 @@
 // HTTP adapter be tested with fakes and free of k8s/octosql imports.
 package web
 
-import "context"
+import (
+	"context"
+	"net"
+)
 
 // QueryResult is the shape returned to the browser: an ordered list of column
 // names plus the result rows as decoded JSON objects (mirroring --output json).
@@ -37,3 +40,17 @@ type Error struct {
 }
 
 func (e *Error) Error() string { return e.Message }
+
+// Server is the driving port for the HTTP server lifecycle. The web adapter
+// (internal/adapter/web) implements it; the composition root builds the
+// concrete server and injects it into the ui command so the domain never
+// imports the adapter.
+type Server interface {
+	// Listen binds the configured address and returns the listener.
+	Listen() (net.Listener, error)
+	// Serve serves HTTP on ln until Shutdown, returning http.ErrServerClosed on
+	// a clean shutdown.
+	Serve(ln net.Listener) error
+	// Shutdown gracefully stops the server.
+	Shutdown(ctx context.Context) error
+}

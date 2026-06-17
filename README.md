@@ -397,6 +397,7 @@ the source of truth for how each feature works.
 
 | Spec | Description |
 |---|---|
+| [Composition Root](openspec/specs/composition-root/spec.md) | Defines the `internal/app` composition root that constructs every adapter and injects them as ports, keeping the domain adapter-free and `cmd` thin. |
 | [DELETE Statement](openspec/specs/delete-statement/spec.md) | Defines `DELETE`: grammar with hint-comment options, deletion-set preview, confirmation/`--yes`, bounded-parallel delete, and exit codes. |
 | [DESCRIBE TABLE](openspec/specs/describe-table/spec.md) | Lists all columns and types for a resource via `DESCRIBE TABLE <resource>`, inferred from OpenAPI or a sample object. |
 | [Dynamic Schema Inference](openspec/specs/dynamic-schema/spec.md) | Defines how resource schemas are inferred at query time, driving column discovery for `SELECT *`, `DESCRIBE TABLE`, and typed filtering. |

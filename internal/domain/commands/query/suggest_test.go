@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	spellcheckerAdapter "github.com/ebuildy/kubectl-sql/internal/adapter/spellchecker"
+	octosqlAdapter "github.com/ebuildy/kubectl-sql/internal/adapter/sql/octosql"
 	"github.com/ebuildy/kubectl-sql/internal/port/api"
 	k8sPort "github.com/ebuildy/kubectl-sql/internal/port/datasources/k8s"
 	"github.com/ebuildy/kubectl-sql/internal/port/schema"
@@ -59,9 +61,11 @@ type resourceErr struct{}
 func (*resourceErr) Error() string { return "unknown resource" }
 
 func newSuggestCmd(in string, stdinIsTTY, inREPL bool, w *strings.Builder) *QueryCommand {
+	ds := suggestDS{}
 	return &QueryCommand{
 		config:     api.Config{Output: "csv", Out: w},
-		k8s:        suggestDS{},
+		k8s:        ds,
+		engines:    octosqlAdapter.NewFactory(ds, spellcheckerAdapter.New()),
 		in:         strings.NewReader(in),
 		stdinIsTTY: stdinIsTTY,
 		inREPL:     inREPL,
